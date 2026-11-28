@@ -5,7 +5,8 @@
   outcome) are listed too. When the server read fewer messages than the range had, an empty query's chart is every
   recorded step in the range, from GET /api/events' histogram. The URL is the page's state, as in the hosted app:
     q=<query>            the explorer's query (event:, queue:, service:, tenant:, body.<path>:, ...)
-    range=1h|4h|1d|...   a range that ends now (a day when the URL names none), moved along while Live is on
+    range=1h|4h|1d|...   a range that ends now (an hour when the URL names none, as on the hosted explorer), moved along
+                         while Live is on; a span dragged on the chart becomes a fixed range
     from, to             a fixed range, as Copy link pins it (ISO 8601 in UTC, or Unix milliseconds)
   Links from before the shared explorer still open what they named: range=24h, from_ms and to_ms, and kind: queries.
 */
@@ -13,14 +14,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 import { NothingReporting, Tooltip, TopBar } from "../src/design/index.ts";
 import { EventExplorer, stepChart, stepChartQuery, TimePicker, type ExplorerData, type StepChartDoc } from "../src/explorer/index.ts";
-import { follow, pinned, rangeFromParams, withRange, type Ev, type TimeRange } from "../src/model/index.ts";
+import { DEFAULT_RANGE, follow, pinned, rangeFromParams, withRange, type Ev, type TimeRange } from "../src/model/index.ts";
 import { storeIsEmpty } from "../src/firstrun/status.ts";
 import { ApiError, CopyLink, getHealth, getJSON, messageHref } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
 import { qs, useRefresh } from "./lists.tsx";
 
-/** The range a page opens on when its URL names none: a day, as this page always has. */
-export const DEFAULT_EVENTS_RANGE = "1d";
+/** The range the page opens on when its URL names none: an hour, as on the hosted explorer and the Overview. */
+export const DEFAULT_EVENTS_RANGE = DEFAULT_RANGE;
 
 /** The URL's range at `now`, reading the names links used before the shared explorer too. */
 export function eventsTime(search: string, now: number): TimeRange {
@@ -37,7 +38,7 @@ export function eventsTime(search: string, now: number): TimeRange {
 export const eventsQueryOf = (q: string) =>
   q.replace(/(^|[\s(-])kind:/gi, "$1event:").replace(/\bevent:change_visibility\b/gi, "event:visibility_change");
 
-/** The page's link for a query and a range. The range is always named, since the page's default is not the explorer's. */
+/** The page's link for a query and a range. The range is always named, so a link says what it shows. */
 export const eventsHref = (query: string, t: TimeRange) =>
   withRange(query.trim() ? `/events?q=${encodeURIComponent(query.trim())}` : "/events", t, true);
 
@@ -141,7 +142,7 @@ export function EventsPage() {
         {empty ? (
           <EventsFirstRun />
         ) : state.kind === "ok" ? (
-          <EventExplorer page query={query} setQuery={setQuery} time={time} data={state.data} messageHref={messageHref}
+          <EventExplorer page query={query} setQuery={setQuery} time={time} setTime={setTime} data={state.data} messageHref={messageHref}
             controls={controls} loadStepChart={loadSteps} />
         ) : (
           <div className="flex items-start gap-3 border-b border-line px-5 py-3">

@@ -15,14 +15,14 @@ import { DEFAULT_EVENTS_RANGE, eventsHref, eventsQueryOf, eventsTime, explorerDa
 const NOW = Date.UTC(2026, 10, 27, 12, 0, 0);
 const H = 3_600_000;
 
-test("the URL's range: a day when it names none, a preset, a typed one, or a fixed from and to", () => {
-  assert.equal(DEFAULT_EVENTS_RANGE, "1d");
-  assert.deepEqual(eventsTime("", NOW), preset("1d", NOW));
+test("the URL's range: an hour when it names none, a preset, a typed one, or a fixed from and to", () => {
+  assert.equal(DEFAULT_EVENTS_RANGE, "1h");
+  assert.deepEqual(eventsTime("", NOW), preset("1h", NOW));
   assert.deepEqual(eventsTime("?range=4h", NOW), preset("4h", NOW));
   assert.equal(eventsTime("?range=45m", NOW).from, NOW - 45 * 60_000);
   assert.deepEqual(eventsTime("?from=2026-11-27T09:00:00Z&to=2026-11-27T10:00:00Z", NOW), custom(NOW - 3 * H, NOW - 2 * H));
   // a range that can't be read is the default
-  assert.deepEqual(eventsTime("?range=nonsense", NOW), preset("1d", NOW));
+  assert.deepEqual(eventsTime("?range=nonsense", NOW), preset("1h", NOW));
 });
 
 test("links from before the shared explorer open what they named", () => {

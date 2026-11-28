@@ -10,6 +10,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { P95_NOTE, TENANT_ENV, TenantSearch, fmtShare, fmtWait, noTenantsText, p95Note, tenantsFootnote } from "../src/tenants/Tenants.tsx";
 import { MessageSearch, NavProvider, TenantsPage, TenantsTable, type LinkProps } from "../src/design/index.ts";
+import { DEFAULT_TENANTS_RANGE, tenantsHref, tenantsTime, tenantsUpgrade } from "../src/tenants/range.ts";
+import { custom, preset } from "../src/model/timerange.ts";
 import { shellSearchHref } from "../shell/frame.tsx";
 import type { TenantStats } from "../src/tenants/types.ts";
 
@@ -99,16 +101,48 @@ test("the table follows the design rules: sans labels, hover notes as Tooltips, 
   assert.doesNotMatch(text(html), / - /);
 });
 
-test("the page chrome: the heading, the one range control with the shown range marked, and the host's search", () => {
-  const ranges = [{ key: "1h", label: "Last hour", href: "/t?r=1h" }, { key: "24h", label: "Last 24 hours", href: "/t?r=24h" }];
-  const html = renderToStaticMarkup(createElement(TenantsPage, { ranges, range: "24h", search: createElement("form", { id: "host-search" }), fresh: false }, createElement("p", null, "body")));
+test("the page chrome: the heading, the host's one range control, and the host's search", () => {
+  const html = renderToStaticMarkup(createElement(TenantsPage, { control: createElement("button", { id: "host-range" }, "Past 1 day"), search: createElement("form", { id: "host-search" }), fresh: false }, createElement("p", null, "body")));
   assert.match(html, /<h1[^>]*>Tenants<\/h1>/);
   assert.ok(html.includes("Which of your customers are sending the traffic, and who is waiting longest."));
   assert.ok(html.includes('id="host-search"'));
-  assert.match(html, /<a href="\/t\?r=24h" aria-current="page"/);
-  assert.match(html, /<a href="\/t\?r=1h" class=/);
-  assert.equal((html.match(/aria-current/g) ?? []).length, 1);
+  assert.equal((html.match(/id="host-range"/g) ?? []).length, 1, "one range control");
+  assert.doesNotMatch(html, /Last 24 hours|Last hour/);
   assert.doesNotMatch(html, /Updated/, "no freshness claim when the host passes fresh={false}");
+});
+
+test("the range: the time picker's ids and names, a day by default, and the links from before QV-711 (QV-711)", () => {
+  const NOW = Date.UTC(2026, 10, 27, 12, 0, 0);
+  const at = (q: string) => { const p = new URLSearchParams(q); return tenantsTime((k) => p.get(k), NOW); };
+  assert.equal(DEFAULT_TENANTS_RANGE, "1d");
+  assert.deepEqual(at(""), preset("1d", NOW));
+  assert.equal(at("").label, "Past 1 day");
+  assert.deepEqual(at("range=4h"), preset("4h", NOW));
+  assert.deepEqual(at("range=nonsense"), preset("1d", NOW));
+  assert.deepEqual(at("from=2026-11-27T09:00:00Z&to=2026-11-27T10:00:00Z"), custom(NOW - 3 * 3_600_000, NOW - 2 * 3_600_000));
+  // the open-source page's since_s and the hosted page's 24h
+  assert.deepEqual(at("since_s=3600"), preset("1h", NOW));
+  assert.deepEqual(at("since_s=86400"), preset("1d", NOW));
+  assert.deepEqual(at("since_s=604800"), preset("7d", NOW));
+  assert.deepEqual(at("range=24h"), preset("1d", NOW));
+  assert.deepEqual(at("range=1h&since_s=604800"), preset("1h", NOW), "range= wins");
+  // what an old link becomes
+  assert.equal(tenantsUpgrade("?since_s=3600"), "?range=1h");
+  assert.equal(tenantsUpgrade("?since_s=86400"), "");
+  assert.equal(tenantsUpgrade("?range=24h"), "");
+  assert.equal(tenantsUpgrade("?since_s=604800&x=1"), "?x=1&range=7d");
+  assert.equal(tenantsUpgrade("?range=1h"), null);
+  assert.equal(tenantsUpgrade(""), null);
+  // the page's link
+  assert.equal(tenantsHref("/tenants", preset("1d", NOW)), "/tenants");
+  assert.equal(tenantsHref("/tenants", preset("7d", NOW)), "/tenants?range=7d");
+  assert.equal(tenantsHref("/tenants?since_s=3600", preset("1h", NOW)), "/tenants?range=1h");
+  assert.equal(tenantsHref("/tenants", custom(NOW - 3_600_000, NOW)), "/tenants?from=2026-11-27T11%3A00%3A00Z&to=2026-11-27T12%3A00%3A00Z");
+});
+
+test("the empty state's sentence reads the time picker's names and a fixed range", () => {
+  assert.match(noTenantsText(3, "Past 1 day"), /3 messages were sent in the past 1 day, none with one\./);
+  assert.match(noTenantsText(0, "Nov 27, 09:00 to 10:00"), /No messages were sent from Nov 27, 09:00 to 10:00\./);
 });
 
 test("the top bar's search: a GET form to the host's search, with the host's parameter name", () => {

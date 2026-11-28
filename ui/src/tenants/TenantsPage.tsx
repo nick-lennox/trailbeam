@@ -79,24 +79,9 @@ export function TenantsTable({ rows, href, Link = UiLink, slowMs = 1000 }: Tenan
   );
 }
 
-export type TenantRange = { key: string; label: string; href: string };
-
-/** The page's one range control: links, so a range is in the URL and a link to the page keeps it. */
-export function TenantRanges({ ranges, current }: { ranges: TenantRange[]; current: string }) {
-  return (
-    <nav aria-label="Time range" className="flex rounded-lg border border-line bg-surface p-0.5 text-sm">
-      {ranges.map((r) => (
-        <UiLink key={r.key} href={r.href} aria-current={r.key === current ? "page" : undefined}
-          className={`rounded-md px-2.5 py-1 ${r.key === current ? "bg-sunken font-medium text-ink" : "text-ink-2 hover:text-ink"}`}>{r.label}</UiLink>
-      ))}
-    </nav>
-  );
-}
-
 export type TenantsPageProps = {
-  /** the ranges the page offers, and the key of the one shown */
-  ranges: TenantRange[];
-  range: string;
+  /** the page's one range control: the host's TimePicker, on the URL's range= or from=&to= (tenants/range.ts) */
+  control?: ReactNode;
   /** the host's message search, drawn in the top bar */
   search?: ReactNode;
   /** the top bar's freshness mark (PageHeader's) */
@@ -105,11 +90,10 @@ export type TenantsPageProps = {
 };
 
 /** The page around the table: the design system's PageHeader with the range control, and the page's padding. */
-export function TenantsPage({ ranges, range, search, fresh, children }: TenantsPageProps) {
+export function TenantsPage({ control, search, fresh, children }: TenantsPageProps) {
   return (
     <>
-      <PageHeader title={TENANTS_TITLE} subtitle={TENANTS_SUBTITLE} search={search} fresh={fresh}
-        actions={ranges.length > 0 ? <TenantRanges ranges={ranges} current={range} /> : undefined} />
+      <PageHeader title={TENANTS_TITLE} subtitle={TENANTS_SUBTITLE} search={search} fresh={fresh} actions={control} />
       <div className="px-8 pb-12">{children}</div>
     </>
   );

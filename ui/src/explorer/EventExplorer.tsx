@@ -17,7 +17,7 @@ import { SOURCE } from "../design/pills.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { EVENT_NAME, fmtDate, type Ev } from "../model/events.ts";
 import { bodyPathsOf, has, GROUPS, type FieldDef, type Group, type QueryLanguage } from "../model/query.ts";
-import { bucket, phrase, rangeLabel, type TimeRange } from "../model/timerange.ts";
+import { bucket, custom, phrase, rangeLabel, type TimeRange } from "../model/timerange.ts";
 import { EventChart, type Seg } from "./EventChart.tsx";
 import { EventDetail } from "./EventDetail.tsx";
 import { DEFAULT_COLUMNS, LEVEL_COLOR, RECORDED_LANGUAGE, SPECIAL, TD, TH, cellText, colLabel, columnChoices, filledColumns, level } from "./columns.ts";
@@ -43,6 +43,9 @@ export type EventExplorerProps = {
   query: string;
   setQuery: (q: string) => void;
   time: TimeRange;
+  /** the page's time range control (its TimePicker's setTime): a span picked on the chart becomes the page's range.
+      Without it, the chart's bars only filter to failed or ok events. */
+  setTime?: (t: TimeRange) => void;
   data: ExplorerData;
   /** a message's timeline page */
   messageHref: (id: string) => string;
@@ -75,7 +78,7 @@ const OPEN_BY_DEFAULT = ["status", "event", "queue", "service", "source", "body_
 
 const PAGE = 100;
 
-export function EventExplorer({ query, setQuery, time, data, messageHref, lang = RECORDED_LANGUAGE, bodyPaths: givenPaths, page = false, controls, detail,
+export function EventExplorer({ query, setQuery, time, setTime, data, messageHref, lang = RECORDED_LANGUAGE, bodyPaths: givenPaths, page = false, controls, detail,
   loadStepChart, download = browserDownload, columnsKey = "trailbeam-event-columns-3" }: EventExplorerProps) {
   const { def, parse, matches, ranges, token, toggle, setOnly } = lang;
   const [open, setOpen] = useState<string | null>(null);
@@ -107,24 +110,20 @@ export function EventExplorer({ query, setQuery, time, data, messageHref, lang =
   const { from, to } = time;
   const { span, n: bars, label: per } = bucket(time);
   const inRange = useMemo(() => events.filter((e) => e.ms >= from && e.ms < to), [events, from, to]);
-  /* A span of time picked on the histogram. It narrows the list and the filter counts, not the chart. */
-  const [win, setWin] = useState<[number, number] | null>(null);
-  useEffect(() => setWin(null), [from, to]);
-  const scope = useMemo(() => (win ? inRange.filter((e) => e.ms >= win[0] && e.ms < win[1]) : inRange), [inRange, win]);
   const matched = useMemo(() => inRange.filter((e) => matches(e, terms)), [inRange, terms, matches]);
 
   /* The columns and filters some event in the range fills: the others are left out of the table, the column list and
      the filters (a filter a query names stays, so it can be cleared). */
   const filled = useMemo(() => filledColumns([...columnChoices(lang, live).flatMap((g) => g.cols.map((c) => c.id)), ...lang.fieldsFor(live).map((f) => f.name)], inRange, lang), [inRange, lang, live]);
   const shownCols = useMemo(() => { const c = columns.filter((x) => filled.has(x)); return c.length ? c : ["date", "event"]; }, [columns, filled]);
-  const rows = useMemo(() => (win ? matched.filter((e) => e.ms >= win[0] && e.ms < win[1]) : matched), [matched, win]);
+  const rows = matched;
 
   /* Export: every event that matches the query and the time range, not only the page on
      screen, with the columns that are shown. Values are written in full. */
   const exportAs = (kind: "csv" | "pdf") => {
     const text = (c: string, e: Ev) => cellText(c, e, lang, (s) => SOURCE[s]?.label ?? s);
     const table = { headers: shownCols.map((c) => colLabel(c, lang)), rows: rows.map((e) => shownCols.map((c) => text(c, e))) };
-    const span = win ? rangeLabel(win[0], win[1]) : rangeLabel(from, to);
+    const span = rangeLabel(from, to);
     const name = `trailbeam-events-${fmtDate(to).slice(0, 6).replace(" ", "-").toLowerCase()}`;
     if (kind === "csv") return download(`${name}.csv`, "text/csv;charset=utf-8", toCsv(table));
     const lines = [`Query: ${query.trim() || "none (all events)"}`, `Time range: ${span}`, `${rows.length} ${rows.length === 1 ? "event" : "events"}, newest first`];
@@ -135,7 +134,7 @@ export function EventExplorer({ query, setQuery, time, data, messageHref, lang =
     () =>
       facetsFor(lang, live).filter((f) => filled.has(f.name) || terms.some((t) => t.field === f.name)).map((f) => {
         const counts = new Map<string, number>();
-        for (const e of scope) {
+        for (const e of inRange) {
           if (!matches(e, terms, f.name)) continue;
           const raw = f.get(e);
           if (raw === undefined) continue;
@@ -151,7 +150,7 @@ export function EventExplorer({ query, setQuery, time, data, messageHref, lang =
       })
       /* a facet with no value to tick is not drawn, nor a group with none (QV-777); one the query names still is */
       .filter((f) => f.values.length > 0 || terms.some((t) => t.field === f.name)),
-    [scope, terms, live, lang, filled],
+    [inRange, terms, live, lang, filled],
   );
   const activeTotal = terms.filter((t) => (t.field || t.value) && !t.error).length;
   const needle = find.trim().toLowerCase();
@@ -177,9 +176,10 @@ export function EventExplorer({ query, setQuery, time, data, messageHref, lang =
     return () => { live = false; };
   }, [wantSteps, from, to, now]);
   const chart = wantSteps ? steps : null;
-  const pick = (w: [number, number] | null, seg?: Seg) => {
+  /* A span picked on the chart is the page's range from then on: one range per page, the time picker's. */
+  const pick = (w: [number, number], seg?: Seg) => {
     setOpen(null);
-    setWin(w);
+    if (setTime && (w[0] !== from || w[1] !== to)) setTime(custom(w[0], w[1]));
     if (seg) setQuery(setOnly(query, ["status"], "status", seg === "err" ? "error" : "ok"));
   };
 
@@ -214,8 +214,8 @@ export function EventExplorer({ query, setQuery, time, data, messageHref, lang =
         </div>
 
         {chart
-          ? <EventChart steps buckets={chart.buckets} from={chart.from} to={to} span={chart.span} per={chart.per} win={win} onPick={(w) => pick(w)} />
-          : <EventChart buckets={buckets} from={from} to={to} span={span} per={per} win={win} onPick={pick} />}
+          ? <EventChart steps buckets={chart.buckets} from={chart.from} to={to} span={chart.span} per={chart.per} onPick={(w) => pick(w)} />
+          : <EventChart buckets={buckets} from={from} to={to} span={span} per={per} onPick={pick} />}
       </div>
 
       <div className={`grid md:grid-cols-[236px_minmax(0,1fr)] ${page ? "min-h-0 flex-1 md:grid-rows-[minmax(0,1fr)]" : ""}`}>

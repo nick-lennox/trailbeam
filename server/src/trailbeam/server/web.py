@@ -450,7 +450,11 @@ def _threshold(s: int) -> str:
     return f"{s} s"
 
 
-TENANT_RANGES = [("3600", "Last hour"), ("86400", "Last 24 hours"), ("604800", "Last 7 days")]
+# the time picker's ids and names (ui/src/model/timerange.ts), as the page with scripts on offers them (QV-711)
+TENANT_RANGES = [("1h", "Past 1 hour"), ("1d", "Past 1 day"), ("7d", "Past 7 days")]
+_TENANT_SECONDS = {"1h": 3600, "1d": 86400, "7d": 604800}
+# links from before QV-711: since_s=3600|86400|604800, and the hosted page's range=24h
+_TENANT_SINCE = {"3600": "1h", "86400": "1d", "604800": "7d"}
 TENANT_IS = "A tenant is your own customer or account ID, read from each message."
 TENANTS_README = '<a href="https://github.com/nick-lennox/trailbeam#tenants">Tenants in the README</a>'
 # ui/src/tenants/Tenants.tsx P95_NOTE: what p95 in queue is over, and how close it is (QV-247)
@@ -464,7 +468,7 @@ TENANT_ENV = ("export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attri
 
 def _no_tenants(total_sent: int, label: str) -> str:
     """The Tenants page with no tenant in its range (QV-217): what a tenant is, and how to set one."""
-    when = "in the " + label.replace("Last ", "last ", 1)
+    when = "in the " + label.replace("Past ", "past ", 1)
     if not total_sent:
         seen = f"No messages were sent {when}."
     else:
@@ -475,11 +479,12 @@ def _no_tenants(total_sent: int, label: str) -> str:
 
 
 def _tenants(api, q: dict) -> Response:
-    since = q.get("since_s") if q.get("since_s") in dict(TENANT_RANGES) else "86400"
-    d = api("tenants", {"since_s": since})
-    label = dict(TENANT_RANGES)[since]
+    asked = "1d" if q.get("range") == "24h" else q.get("range") or _TENANT_SINCE.get(q.get("since_s", ""), "")
+    rng = asked if asked in _TENANT_SECONDS else "1d"
+    d = api("tenants", {"since_s": str(_TENANT_SECONDS[rng])})
+    label = dict(TENANT_RANGES)[rng]
     head = ("<h1>Tenants</h1><p class=\"muted\">Which of your customers are sending the traffic, and who is "
-            "waiting longest.</p>" + _filters("/tenants", {"since_s": since}, [("since_s", "Range", TENANT_RANGES)]))
+            "waiting longest.</p>" + _filters("/tenants", {"range": rng}, [("range", "Range", TENANT_RANGES)]))
     if not d["rows"]:
         return _page(200, "Tenants", head + _no_tenants(d["total_sent"], label))
     rows = []
