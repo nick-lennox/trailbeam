@@ -2,9 +2,8 @@
   `/`: the Messages list, or, while the store holds no span and the URL has no filter, the first-run screen
   (design QV-146). The screen polls /api/health every 2 s while the tab is visible (10 s after a failure) and, when
   the first span is stored, shows that message and renders the list below it, without a reload. The first-run
-  screen is in the shell's frame (frame.tsx) on the design system; the list keeps the header frame until the
-  Messages list moves onto the design system (QV-582), and under the first-run screen it sits in a night panel,
-  so its sky colors read the same in the day theme.
+  screen and the list (messages.tsx, the shared MessagesView) are both in the shell's frame (frame.tsx) on the design
+  system; under the first-run screen the list is a card.
 */
 import { useEffect, useRef, useState } from "react";
 import {
@@ -12,14 +11,14 @@ import {
   type FirstMessage, type FirstRunStatus, type Health, type MessageSummary, type Runtime,
 } from "../src/index.ts";
 import { FirstRun, TopBar } from "../src/design/index.ts";
-import { Frame, getHealth, getJSON } from "./chrome.tsx";
+import { getHealth, getJSON } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
-import { MessagesList } from "./lists.tsx";
+import { MessagesPage, MessagesPanel } from "./messages.tsx";
 
 const POLL_MS = 2000;
 const BACKOFF_MS = 10_000;
 // a range or a pinned window is a filter too: a shared link shows its list, not the first-run screen
-const FILTERS = ["queue", "tenant", "body", "cursor", "range", "from_ms", "to_ms"];
+const FILTERS = ["queue", "tenant", "version", "body", "cursor", "range", "from", "to", "from_ms", "to_ms"];
 
 function savedRuntime(): Runtime {
   try { return localStorage.getItem(RUNTIME_KEY) === "node" ? "node" : "python"; } catch { return "python"; }
@@ -99,8 +98,8 @@ function FirstRunPage({ health }: { health: Health }) {
           version={health.version ?? "unknown"} runtime={runtime} onRuntime={pick} retainedFor={retainedFor(health)} />
       </div>
       {received && (
-        <div data-app-theme="night" className="mx-8 mb-16 rounded-card border border-line bg-sky p-6 text-sky-ink">
-          <MessagesList params={{}} heading="h2" />
+        <div className="mx-8 mb-16">
+          <MessagesPanel embedded />
         </div>
       )}
     </ShellFrame>
@@ -114,16 +113,11 @@ export function HomePage() {
   const filtered = FILTERS.some((k) => params[k]?.trim());
   const [state, setState] = useState<HomeState>(filtered ? { kind: "list" } : { kind: "loading" });
   useEffect(() => {
-    if (filtered) { document.title = "Trailbeam"; return; }
+    if (filtered) return;
     // health can't tell (no session, store down): show the list, which says what went wrong
     getHealth(5000).then((h) => setState(storeIsEmpty(h) ? { kind: "first-run", health: h } : { kind: "list" }), () => setState({ kind: "list" }));
   }, [filtered]);
-  useEffect(() => { if (state.kind === "list") document.title = "Trailbeam"; }, [state.kind]);
   if (state.kind === "first-run") return <FirstRunPage health={state.health} />;
-  return (
-    <Frame>
-      {state.kind === "loading" && <p className="text-sky-ink-3">Loading messages</p>}
-      {state.kind === "list" && <MessagesList params={params} />}
-    </Frame>
-  );
+  if (state.kind === "list") return <MessagesPage />;
+  return <ShellFrame path="/"><p className="px-5 py-3 text-sm text-ink-3">Loading messages</p></ShellFrame>;
 }
