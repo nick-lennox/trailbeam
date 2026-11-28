@@ -8,6 +8,7 @@
     stuck-age.ts   how old an undeleted message must be to count as not finished, in links and in words
     overview.ts    what the Overview draws (overviewData) and each consumer's figures (consumerFigures)
     queue-live.ts  a queue's figures, and its health from them
+    in-queue.ts    "In ‹queue› now": the messages in a queue now, from either backend
     timerange.ts   one configurable time range per page: presets, typed ranges, ranges in links
     query.ts       the Event explorer's query language
     format.ts      durations, counts, sizes, platform names and the Overview's ranges
@@ -21,6 +22,7 @@ export * from "./issues.ts";
 export * from "./stuck-age.ts";
 export * from "./overview.ts";
 export * from "./queue-live.ts";
+export * from "./in-queue.ts";
 export * from "./timerange.ts";
 export * from "./query.ts";
 export * from "./format.ts";

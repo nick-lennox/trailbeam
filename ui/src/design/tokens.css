@@ -393,6 +393,8 @@
 .lane-mark { transition: transform .5s cubic-bezier(.3,.7,.2,1), opacity .4s linear, width .18s ease-out; }
 @media (prefers-reduced-motion: no-preference) { .lane-mark { animation: lane-in .3s ease-out; } @keyframes lane-in { from { opacity: 0; } } }
 @media (prefers-reduced-motion: reduce) { .lane-mark { transition: none; } }
+/* the Overview's flow map (OverviewFlows): dashes travel along each wire the way messages do */
+@media (prefers-reduced-motion: no-preference) { .flow-dash { animation: flow-dash linear infinite; } @keyframes flow-dash { to { stroke-dashoffset: -14; } } }
 
 /* A message sequence that is still gaining steps: rows and bars move to their new places,
    a new step drops in, and a new bar grows downward from where it starts. */
