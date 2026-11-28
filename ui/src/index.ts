@@ -57,6 +57,10 @@ export { CauseList, CauseMessagesTable, DeadLetterQueues, OutcomeTag, TrendBars,
 export { causesNote, dlqSplit, tenantsText, trendOf, versionsText, whenFirst, whenLast, OUTCOME_LABELS, TREND_BARS, TREND_MS } from "./causes/text.ts";
 export type * from "./causes/types.ts";
 export { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "./messages/empty.tsx";
+// the Messages list's query (pure); the list itself, MessagesView, is a client module in @trailbeam/ui/explorer
+export {
+  LIST_STATES, listQuery, messageQueryLanguage, queryOfParams, traceIdOf, type ListField, type ListQuery, type MessageQueryLanguage,
+} from "./messages/listQuery.ts";
 // the queue page itself is a client module, in @trailbeam/ui/design (QueuePage); its data and link types are here
 export { Chart, Legend, Tag, type ChartProps, type ChartLine, type LegendItem } from "./queue/Chart.tsx";
 export {
