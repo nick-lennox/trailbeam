@@ -502,6 +502,9 @@ paths:
         A new personal API token that acts as you, with your role. `secret` is the token, shown only in this
         answer. `expires_in_days` from 1 to 3650; leave it out or send null for a token that works until it
         is revoked. Needs a person. Added in 0.5.
+
+        A personal API token can't create one (`403`, `reason` `needs_a_session`): sign in in a browser, or
+        through the proxy, so that a short-lived token can't leave behind one that outlives it.
       requestBody:
         required: true
         content:
