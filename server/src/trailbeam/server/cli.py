@@ -333,7 +333,7 @@ SEEN_SOON = "Running servers see it within 20 seconds."
 def users_create(a, acc: Accounts, where: str) -> int:
     first = a.role == "admin" and not acc.auth_state()[0]
     if first and acc.postgres:
-        _say("Upgrade every replica to this version before creating the first admin: a replica still on 0.3.0 "
+        _say("Upgrade every replica to this version before creating the first admin: a replica on an older version "
              "keeps letting TRAILBEAM_TOKEN into the web screen and the API.")
     if not acc.auth_state()[0] and a.role != "admin":
         _say("Note: this server has no admin yet. Until it has one, accounts aren't used: use --role admin for the "
