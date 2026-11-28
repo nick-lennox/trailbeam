@@ -14,6 +14,16 @@ It runs every few minutes (alerts_scheduler.py), so:
 - the workspaces checked longest ago go first, and no new one starts once ``budget_ms`` has passed. The rest wait for
   the next check, which starts with them.
 
+**An interrupted check (QV-674).** record() writes the new state before the changes are delivered, and a later check
+does not send a change again once its state is written. So the changes are put in an outbox (``AlertStore.hold``)
+just before delivery and taken out (``sent``) once ``deliver`` returns. A check stopped in between (a shutdown, a
+crash, the process killed, ``deliver`` raising) leaves them there, and the next check of the workspace, under its
+lease, sends them first. That makes delivery at least once: a check stopped after some channels were sent to sends to
+them again. A held batch is tried MAX_TRIES times, and one held longer than MAX_HELD_MS is not sent any more; either is
+logged as an error and counted in the result's ``dropped``. What is still unguarded is the moment between record()
+returning and hold() taking effect (no network call, only the store's own writes); a hold() that fails is logged and
+the changes are delivered anyway.
+
 A muted or snoozed "Alert me" rule's state is still recorded, but its changes are not sent; when it wakes up still
 firing, one "still firing" change is (``afterSnooze``). While a rule's cause is ignored in triage the rule is held:
 worked out as usual, sending nothing, its own mute left alone; when the ignore ends while it is firing, one "Back from
@@ -50,6 +60,11 @@ LEASE_MS = 6 * 60_000
 #: a workspace checked without an error less than this ago is not checked again: two triggers close together do the
 #: work once (ms)
 MIN_GAP_MS = 45_000
+#: a held batch of changes (the outbox) is delivered this many times at most, the first time included
+MAX_TRIES = 3
+#: a held batch older than this is not sent any more: what it says is that old, and later checks have sent what
+#: followed (ms)
+MAX_HELD_MS = 6 * 60 * 60_000
 #: what tb_alert_state keeps of a rule's figure; the cause rule's ``rule`` info travels with the change only
 STATE_FIELDS = ("dashboardId", "widgetId", "dashboardName", "title", "tone", "value", "limit", "queue", "since",
                 "checkedAt")
@@ -115,6 +130,18 @@ class AlertStore(Protocol):
     def set_regressed_seen(self, ws: str, rule_id: str, regressed_at: int) -> bool:
         """Sets the rule's regressedSeen to ``regressed_at`` if it isn't already. True if it changed."""
 
+    def hold(self, ws: str, id_: str, changes: list, at: int) -> None:
+        """Puts a batch of changes this check won in the outbox before they are delivered, as tried once."""
+
+    def held(self, ws: str) -> list[dict]:
+        """The workspace's batches in the outbox, oldest first: [{"id", "changes", "heldAt", "tries"}]."""
+
+    def retry(self, ws: str, id_: str) -> None:
+        """Counts one more delivery of the batch."""
+
+    def sent(self, ws: str, id_: str) -> bool:
+        """Takes the batch out of the outbox: its delivery returned, or it is given up. True if it was there."""
+
 
 class MemoryAlertStore:
     """AlertStore in memory, for the tests and until the tables exist. One lock-free process: the check is the only
@@ -131,6 +158,8 @@ class MemoryAlertStore:
         self.checks: dict[str, dict] = copy.deepcopy(checks or {})
         #: key -> {"owner", "until"}
         self.leases: dict[str, dict] = copy.deepcopy(leases or {})
+        #: ws -> {batch ID: {"id", "changes", "heldAt", "tries"}}
+        self.outbox: dict[str, dict[str, dict]] = {}
 
     def last_checks(self) -> dict[str, int]:
         return {k: c["checkedAt"] for k, c in self.checks.items()}
@@ -203,6 +232,20 @@ class MemoryAlertStore:
             return False
         x["memory"] = {**x["memory"], "regressedSeen": regressed_at}
         return True
+
+    def hold(self, ws: str, id_: str, changes: list, at: int) -> None:
+        self.outbox.setdefault(ws, {})[id_] = {"id": id_, "changes": copy.deepcopy(changes), "heldAt": at, "tries": 1}
+
+    def held(self, ws: str) -> list[dict]:
+        return copy.deepcopy(sorted(self.outbox.get(ws, {}).values(), key=lambda b: (b["heldAt"], b["id"])))
+
+    def retry(self, ws: str, id_: str) -> None:
+        b = self.outbox.get(ws, {}).get(id_)
+        if b is not None:
+            b["tries"] += 1
+
+    def sent(self, ws: str, id_: str) -> bool:
+        return self.outbox.get(ws, {}).pop(id_, None) is not None
 
 
 # ── what the rules need ───────────────────────────────────────────────────────────────────────────────────────────
@@ -354,7 +397,9 @@ def _error(e: BaseException) -> str:
 
 def run_alerts(deps: Deps) -> dict:
     """One scheduled check. Returns {"workspaces": checked, "rules": figures recorded, "changes": changes sent,
-    "failed": [{ws, error}], "skipped": {"noChannel", "leased", "budget"}: workspaces with rules left out, "ms"}."""
+    "failed": [{ws, error}], "skipped": {"noChannel", "leased", "budget"}: workspaces with rules left out, "ms"}, and,
+    only when not 0 (the hosted app's runAlerts has no outbox, and the shared cases hold none), "resent": changes an
+    interrupted check left in the outbox, sent now, and "dropped": held changes given up."""
     clock = deps.now
     start = clock()
     owner = deps.owner or str(uuid.uuid4())
@@ -388,6 +433,8 @@ def run_alerts(deps: Deps) -> dict:
             continue
         out["workspaces"] += 1
         try:
+            if deps.deliver:
+                _send_held(deps, ws, at, out)
             seen = observe(dashboards, deps.data(ws, dashboards)) if boards else []
             ruled = _CauseRules(deps, ws, at) if rules else None
             if ruled:
@@ -398,7 +445,7 @@ def run_alerts(deps: Deps) -> dict:
                 changes = ruled.settle(changes)
             out["changes"] += len(changes)
             if changes and deps.deliver:
-                deps.deliver(ws, changes)
+                _deliver(deps, ws, changes, at)
             if ruled and ruled.failed:
                 # the changes went out; the workspace is still noted as failed, with the first error
                 raise ruled.failed[0]
@@ -415,6 +462,47 @@ def run_alerts(deps: Deps) -> dict:
                 log.warning("alert check: could not release the lease of workspace %s", ws, exc_info=True)
     out["ms"] = clock() - start
     return out
+
+
+def _deliver(deps: Deps, ws: str, changes: list, at: int) -> None:
+    """Delivers the changes record() won, held in the outbox until ``deliver`` returns. If it raises, they stay
+    there for the next check, and the error fails the workspace."""
+    assert deps.deliver is not None
+    store, id_ = deps.store, str(uuid.uuid4())
+    try:
+        store.hold(ws, id_, changes, at)
+    except Exception:  # send them now all the same; only a stop before deliver returns loses them
+        log.exception("alert check: could not hold %d change(s) of workspace %s before sending them; a stop now "
+                      "would lose them", len(changes), ws)
+        deps.deliver(ws, changes)
+        return
+    deps.deliver(ws, changes)
+    try:
+        store.sent(ws, id_)
+    except Exception:  # the next check sends them again: twice rather than never
+        log.warning("alert check: could not take %d sent change(s) of workspace %s out of the outbox; the next "
+                    "check sends them again", len(changes), ws, exc_info=True)
+
+
+def _send_held(deps: Deps, ws: str, at: int, out: dict) -> None:
+    """Sends what an interrupted check of the workspace left in the outbox, oldest first, before this check's own
+    changes. Raises what ``deliver`` raises: the batch stays, with one more try counted."""
+    assert deps.deliver is not None
+    store = deps.store
+    for b in store.held(ws):
+        n = len(b["changes"])
+        if b["tries"] >= MAX_TRIES or at - b["heldAt"] > MAX_HELD_MS:
+            store.sent(ws, b["id"])
+            out["dropped"] = out.get("dropped", 0) + n
+            log.error("alert check: gave up on %d change(s) of workspace %s won at %d and never known to be sent "
+                      "(%d tries)", n, ws, b["heldAt"], b["tries"])
+            continue
+        store.retry(ws, b["id"])
+        log.warning("alert check: sending %d change(s) of workspace %s that an interrupted check left (won at %d, "
+                    "try %d)", n, ws, b["heldAt"], b["tries"] + 1)
+        deps.deliver(ws, b["changes"])
+        store.sent(ws, b["id"])
+        out["resent"] = out.get("resent", 0) + n
 
 
 def has_rules(deps: Deps) -> bool:

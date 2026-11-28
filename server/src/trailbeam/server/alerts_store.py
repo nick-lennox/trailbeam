@@ -16,6 +16,9 @@ from the ingest pool).
   their dashboard and widget, "Alert me" rules under dashboard ``rule`` and the rule's ID.
 - ``alert_checks``: per workspace (or alerts_run.span_key), when it was last checked and with what error, and its
   lease: who holds it until when.
+- ``alert_outbox`` (QV-674; SQLite schema 29, Postgres schema 23): the changes a check won and is sending. Written
+  just before delivery and deleted once it returns, so a check stopped in between (a shutdown, a crash, a delivery
+  that raised) leaves its changes here, and the next check of the workspace sends them (alerts_run.run_alerts).
 
 **Two checks at once.** Every write that decides whether a change is sent is one conditional statement whose row
 count says whether it took effect (write_state, clear_was_muted, set_regressed_seen, add_rule), and the lease is
@@ -42,7 +45,7 @@ from typing import Any
 
 from . import alerts
 
-TABLES = ("alert_rules", "alert_channels", "alert_state", "alert_checks")
+TABLES = ("alert_rules", "alert_channels", "alert_state", "alert_checks", "alert_outbox")
 
 SQLITE_CREATE = """
 CREATE TABLE IF NOT EXISTS alert_rules (
@@ -108,6 +111,19 @@ CREATE TABLE IF NOT EXISTS alert_checks (
     lease_until_ms INTEGER NOT NULL DEFAULT 0
 );
 """
+
+SQLITE_OUTBOX = """
+CREATE TABLE IF NOT EXISTS alert_outbox (
+    ws TEXT NOT NULL,
+    id TEXT NOT NULL,
+    changes_json TEXT NOT NULL,          -- JSON [change, ...], as alerts_run.record and settle return them
+    held_at_ms INTEGER NOT NULL,         -- the check that won them
+    tries INTEGER NOT NULL,              -- deliveries started, the first one included
+    PRIMARY KEY (ws, id)
+);
+"""
+
+PG_OUTBOX = SQLITE_OUTBOX.replace(" INTEGER", " BIGINT")
 
 PG_CREATE = (SQLITE_CREATE.replace(" INTEGER", " BIGINT")
              .replace("was_muted BIGINT", "was_muted SMALLINT").replace("was_held BIGINT", "was_held SMALLINT")
@@ -360,6 +376,23 @@ class AlertTables:
     def note_delivery(self, ws: str, channel_id: str, at: int, ok: bool, detail: str | None) -> None:
         self._run("UPDATE alert_channels SET last_at_ms = ?, last_ok = ?, last_detail = ? WHERE ws = ? AND id = ?",
                   (at, int(ok), detail[:300] if detail is not None else None, ws, channel_id))
+
+    # ---- the outbox: changes won and not yet known to be sent (QV-674) ------------------------------------------
+
+    def hold(self, ws: str, id_: str, changes: list, at: int) -> None:
+        self._run("INSERT INTO alert_outbox (ws, id, changes_json, held_at_ms, tries) VALUES (?, ?, ?, ?, 1)",
+                  (ws, id_, json.dumps(changes, separators=(",", ":")), at))
+
+    def held(self, ws: str) -> list[dict]:
+        return [{"id": r["id"], "changes": json.loads(r["changes_json"]), "heldAt": r["held_at_ms"],
+                 "tries": r["tries"]} for r in self._read(
+            "SELECT id, changes_json, held_at_ms, tries FROM alert_outbox WHERE ws = ? ORDER BY held_at_ms, id", (ws,))]
+
+    def retry(self, ws: str, id_: str) -> None:
+        self._run("UPDATE alert_outbox SET tries = tries + 1 WHERE ws = ? AND id = ?", (ws, id_))
+
+    def sent(self, ws: str, id_: str) -> bool:
+        return self._run("DELETE FROM alert_outbox WHERE ws = ? AND id = ?", (ws, id_)) == 1
 
     def workspaces_with_channels(self) -> set[str]:
         return {r["ws"] for r in self._read("SELECT DISTINCT ws FROM alert_channels")}

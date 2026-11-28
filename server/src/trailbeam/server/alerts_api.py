@@ -30,8 +30,8 @@ its team, a webhook up to its host, an email channel's addresses. A webhook's si
 the channel is added. The SMTP server and its password are the operator's settings, never the API's.
 
 **Storage.** Rules, channels and alert state are read and written through ``AlertConfigStore``, which adds the
-API's reads and writes to alerts_run.AlertStore, so the check and the API share one store. MemoryAlertConfig is the
-store in memory; the SQLite and Postgres tables are the next part of QV-592. Until then the routes answer only when
+API's reads and writes to alerts_run.AlertStore, so the check and the API share one store: in the server, the SQLite
+or Postgres tables (alerts_store.AlertTables, for_app); MemoryAlertConfig in tests. The routes answer only when
 the scheduled check is on (``TRAILBEAM_ALERT_CHECK``, alerts_scheduler.py), so nothing half done shows by default.
 
 contract/fixtures/alerts-api.json holds the checks' results (accepted and refused rules, mutes and channels, with
@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import logging
 import os
 import re
 import secrets
@@ -51,6 +52,8 @@ from typing import Any, Protocol
 
 from . import alert_delivery, alert_messages, alerts
 from .alerts_run import AlertStore, MemoryAlertStore, now_ms
+
+log = logging.getLogger("trailbeam.server.alerts")
 
 # ── the hosted app's limits and choices (rules.ts, channels.ts, schedule.ts) ─────────────────────────────────────
 
@@ -229,8 +232,8 @@ def _locked(fn):
 
 
 class MemoryAlertConfig(MemoryAlertStore):
-    """AlertConfigStore in memory: the tests, and the server until the tables exist (what it holds is lost when the
-    server stops). The API runs on request threads and the check on its own, so every method holds one lock."""
+    """AlertConfigStore in memory: the tests, and a server whose store has no alert tables (a test double; what it
+    holds is lost when the server stops). The API runs on request threads and the check on its own, so every method holds one lock."""
 
     def __init__(self, rules: dict | None = None, states: dict | None = None, checks: dict | None = None,
                  leases: dict | None = None, channels: dict | None = None):
@@ -253,6 +256,10 @@ class MemoryAlertConfig(MemoryAlertStore):
     remember = _locked(MemoryAlertStore.remember)
     clear_was_muted = _locked(MemoryAlertStore.clear_was_muted)
     set_regressed_seen = _locked(MemoryAlertStore.set_regressed_seen)
+    hold = _locked(MemoryAlertStore.hold)
+    held = _locked(MemoryAlertStore.held)
+    retry = _locked(MemoryAlertStore.retry)
+    sent = _locked(MemoryAlertStore.sent)
 
     @_locked
     def list_rules(self, ws: str) -> list[dict]:
@@ -574,10 +581,12 @@ WORKSPACE = {"id": "local", "name": "Trailbeam", "slug": "local"}
 
 
 def for_app(app, env=None) -> AlertsApi | None:
-    """The API for server.App, or None (the routes are 404) while the scheduled check is off: the alert tables come
-    in the next part of QV-592, and until then what is made here lives in memory only. ValueError on a setting the
-    check can't take (alerts_scheduler.check_every_min)."""
-    from . import alerts_scheduler
+    """The API for server.App, or None (the routes are 404) while the scheduled check is off. On the store's alert
+    tables (alerts_store.AlertTables), so channels and their secrets outlive a restart and every server process on one
+    database shares them; a store without them (a test double) keeps them in memory. Links point to --public-url and
+    email goes through the operator's mail server (TRAILBEAM_SMTP_HOST, app.mailer), as for invites (QV-674).
+    ValueError on a setting the check can't take (alerts_scheduler.check_every_min)."""
+    from . import alerts_scheduler, alerts_store
 
     every = alerts_scheduler.check_every_min(os.environ if env is None else env)
     if every is None:
@@ -589,5 +598,15 @@ def for_app(app, env=None) -> AlertsApi | None:
     def causes() -> list:
         return list(app.causes({}, [])["groups"])
 
-    return AlertsApi(MemoryAlertConfig(), WORKSPACE, causes, alert_delivery.Delivery(base="http://localhost"),
-                     every_min=every, is_manager=is_manager)
+    db = app.db
+    store = alerts_store.AlertTables(db) if hasattr(db, "reader") or hasattr(db, "reads") else MemoryAlertConfig()
+    if app.public_url is None:
+        log.warning("alerts: --public-url is not set, so the links in scheduled alerts point to %s", LOCAL_BASE)
+    mailer = getattr(app, "mailer", None)
+    delivery = alert_delivery.Delivery(base=app.public_url or LOCAL_BASE,
+                                       smtp=getattr(mailer, "smtp", None))
+    return AlertsApi(store, WORKSPACE, causes, delivery, every_min=every, is_manager=is_manager)
+
+
+#: where scheduled alerts link without --public-url (a test send links to the address it was asked at)
+LOCAL_BASE = "http://localhost"
