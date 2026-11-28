@@ -47,7 +47,9 @@ and "NaN", as in contract/fixtures/measures-parity.json, because JSON has no suc
 **What a measures request may cost** (QV-684): a definition holds at most MAX_WIDGETS widgets, MAX_QUERIES queries a
 widget and MAX_COLUMNS columns a queue table (_checked); a query's lines are the largest MAX_LINES and one
 "Other (k)" line for the rest; and once a dashboard's answer holds MEASURES_BYTES of JSON or has taken
-MEASURES_SECONDS, the widgets left are ``skipped``, to be asked for one at a time.
+MEASURES_SECONDS, the widgets left are ``skipped``, to be asked for one at a time. A queue table or status grid has
+at most MAX_QUEUE_ROWS rows, and stops adding them once the request has taken MEASURES_SECONDS, on the route for one
+widget as well (QV-713): either way it says ``queuesCapped``.
 
 The routes answer only when ``TRAILBEAM_DASHBOARDS`` is on (1, true, yes or on), so nothing half done shows by
 default; the dashboard screens are later parts of QV-591.
@@ -106,6 +108,10 @@ MAX_LINES = 10
 #: back with ``skipped`` (SKIPPED) and no figures, to be asked for on its own (/widgets/{wid}/measures)
 MEASURES_BYTES = 8 * 1024 * 1024
 MEASURES_SECONDS = 5.0
+#: a queue table's or status grid's rows: the queues with the most events in the range, shown in name order, and
+#: ``queuesCapped`` when the filter leaves more. A row is each column's figure for that queue, and a store keeps
+#: every queue it has seen: 500 queues by 19 columns took 44 s in one widget before QV-713
+MAX_QUEUE_ROWS = 200
 
 NO_NAME = "Give the dashboard a name."
 TOO_BIG = f"That dashboard is too large. A dashboard can be at most {M.MAX_DEF_BYTES // 1024} KB."
@@ -357,8 +363,72 @@ def _queue_ids(w: dict) -> list:
     return [q.get("measure") for q in w.get("queries") or [] if isinstance(q, dict)]
 
 
+def _unquoted(name: str) -> bool:
+    """A queue name that ``queue:"<name>"`` matches only itself (ignoring case): no wildcard, no quote to end the
+    value early, and not empty (an empty value matches every event)."""
+    return bool(name) and "*" not in name and '"' not in name
+
+
+def queue_rows(cols: list, f: str, t: dict, data: dict,
+               over: Callable[[], bool] | None = None) -> tuple[list, int, bool]:
+    """A queue table's or status grid's rows ({name, tone, values}) for the queues filter ``f`` leaves, the queues'
+    count, and whether the rows are fewer: past MAX_QUEUE_ROWS (the queues with the most events in ``t`` are kept),
+    or ``over()`` said the request's time was up before the rest were worked out (QV-713). The rows are in name
+    order, as the queues are.
+
+    Each value is what it was worked out as before QV-713, ``M.series_for(m, f'queue:"{name}"', None, t, 2,
+    data)[0]["now"]`` for an event column, M.queue_value for a queue column and M.queue_tone for the tone, but from
+    one pass over the events, grouped by queue, rather than one pass per queue and column."""
+    names = M.queues_for(M.parse(f), data.get("queues") or [])
+    hour = M.preset("1h", data["now"])
+    in_t: dict[str, list] = {}  # queue:"x" matches the queue x ignoring case (measures.text_hit)
+    took: dict[Any, list] = {}  # p95_processing's events: the queue exactly, over t
+    took_hour: dict[Any, list] = {}  # and over the past hour, for the tone
+    for e in data.get("events") or []:
+        q, ms = e.get("queue"), e["ms"]
+        inside = t["from"] <= ms < t["to"]
+        if inside:
+            in_t.setdefault(("" if q is None else M.js_str(q)).lower(), []).append(e)
+        if e.get("event") in ("delete", "processing_error") and e.get("durationMs") is not None:
+            try:
+                if inside:
+                    took.setdefault(q, []).append(e["durationMs"])
+                if hour["from"] <= ms < hour["to"]:
+                    took_hour.setdefault(q, []).append(e["durationMs"])
+            except TypeError:  # a queue that is not text (no store writes one) is no queue name
+                pass
+    minutes = (t["to"] - t["from"]) / 60_000
+
+    def p95(by: dict, name: str) -> Callable[[], float | None]:
+        return lambda: M.p95_of(by[name]) if by.get(name) else None
+
+    # the busiest first; sorted() keeps name order among equals
+    ranked = sorted(names, key=lambda n: -len(in_t.get(n.lower(), [])) if _unquoted(n) else 0)
+    capped = len(ranked) > MAX_QUEUE_ROWS
+    rows = []
+    for name in ranked[:MAX_QUEUE_ROWS]:
+        if rows and over is not None and over():
+            capped = True
+            break
+        vals = {}
+        for m in cols:
+            if m.queue:
+                vals[m.id] = M.queue_value(m, name, data, t, p95(took, name))
+            elif _unquoted(name):
+                when = (m.ev or {}).get("when")
+                vals[m.id] = M.event_value(m, [e for e in in_t.get(name.lower(), []) if not when or when(e)],
+                                           minutes)
+            else:  # a wildcard or a quote in a queue's name: as before, so it matches what it matched
+                s = M.series_for(m, f'queue:"{name}"', None, t, 2, data)
+                vals[m.id] = s[0]["now"] if s else 0
+        rows.append({"name": name, "tone": M.queue_tone(name, data, p95(took_hour, name)), "values": vals})
+    order = {n: i for i, n in enumerate(names)}
+    rows.sort(key=lambda r: order[r["name"]])
+    return rows, len(names), capped
+
+
 def widget_measures(w: dict, variables: list, time: dict, data: dict, n: int = N_DEFAULT,
-                    no_depth_text: str | None = None) -> dict:
+                    no_depth_text: str | None = None, over: Callable[[], bool] | None = None) -> dict:
     """What one widget draws, worked out as the hosted dashboard's widgets work it out (components/dashboards/
     widgets.tsx) over the widget's own time range if it has one, else ``time``:
 
@@ -368,7 +438,9 @@ def widget_measures(w: dict, variables: list, time: dict, data: dict, n: int = N
     - ``buckets``: the events per bucket, ok and failed, for a timeseries of the events measure;
     - ``events``: the matching events (up to MAX_EVENTS; ``eventsCapped``), for event lists, distributions and
       heatmaps;
-    - ``queues``: per queue the filter leaves, its health and each column's figure, for queue tables and status grids;
+    - ``queues``: per queue the filter leaves, its health and each column's figure, for queue tables and status grids
+      (queue_rows: at most MAX_QUEUE_ROWS, and fewer once ``over()`` says the request's time is up; ``queuesTotal``
+      counts them all and ``queuesCapped`` says when the rows are fewer);
     - ``alert``: the widget's alert state now (measures.alert_of), or None;
     - ``queueOnlyTerms``: the filter terms a queue measure can't apply; ``noDepth``: why queue measures have no figure
       (``no_depth_text`` when given and no queue has figures: a server that reads none says so even with no queues).
@@ -394,17 +466,7 @@ def widget_measures(w: dict, variables: list, time: dict, data: dict, n: int = N
         out["events"], out["eventsCapped"] = evs[:MAX_EVENTS], len(evs) > MAX_EVENTS
     if w.get("type") in QUEUE_WIDGETS:
         cols = [m for m in (M.measure(c) for c in (_queue_ids(w) if w["type"] == "queue_table" else [])) if m]
-        rows = []
-        for name in M.queues_for(M.parse(f), data.get("queues") or []):
-            vals = {}
-            for m in cols:
-                if m.queue:
-                    vals[m.id] = M.queue_value(m, name, data, t)
-                else:
-                    s = M.series_for(m, f'queue:"{name}"', None, t, 2, data)
-                    vals[m.id] = s[0]["now"] if s else 0
-            rows.append({"name": name, "tone": M.queue_tone(name, data), "values": vals})
-        out["queues"] = rows
+        out["queues"], out["queuesTotal"], out["queuesCapped"] = queue_rows(cols, f, t, data, over)
     a = M.alert_of(w, variables, data)
     out["alert"] = None if a is None else {k: a[k] for k in ("tone", "value", "limit", "queue")}
     ids = _queue_ids(w)
@@ -763,7 +825,7 @@ class DashboardsApi:
                              "skipped": SKIPPED.format(id=d["id"], wid=w.get("id"))})
                 continue
             wm = plain(widget_measures(w, d["def"]["variables"], t, live if w.get("time") else data, n,
-                                       no_depth))
+                                       no_depth, over=lambda: self.clock() - start >= MEASURES_SECONDS))
             size += len(json.dumps(wm, separators=(",", ":")))
             done.append(wm)
         capped = any(x.get("capped", False) for x in (data, live) if x is not None)
