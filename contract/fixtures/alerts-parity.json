@@ -1450,6 +1450,236 @@
     ],
     "gone": []
    }
+  },
+  {
+   "name": "every: new messages while already firing: fired again, since kept",
+   "prev": [
+    {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "R1",
+     "tone": "critical",
+     "value": "1",
+     "limit": "above 5",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "mode": "every",
+      "newCount": 1
+     },
+     "since": 1763999400000,
+     "checkedAt": 1763999700000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "R1",
+     "tone": "critical",
+     "value": "2",
+     "limit": "above 5",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "mode": "every",
+      "newCount": 2
+     }
+    }
+   ],
+   "at": 1764000000000,
+   "present": [
+    "rule/r1"
+   ],
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "rule",
+      "dashboardName": "",
+      "widgetId": "r1",
+      "title": "R1",
+      "tone": "critical",
+      "value": "2",
+      "limit": "above 5",
+      "queue": "orders",
+      "rule": {
+       "kind": "cause",
+       "ruleId": "r1",
+       "mode": "every",
+       "newCount": 2
+      },
+      "since": 1763999400000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "fired",
+      "from": "critical",
+      "alert": {
+       "dashboardId": "rule",
+       "dashboardName": "",
+       "widgetId": "r1",
+       "title": "R1",
+       "tone": "critical",
+       "value": "2",
+       "limit": "above 5",
+       "queue": "orders",
+       "rule": {
+        "kind": "cause",
+        "ruleId": "r1",
+        "mode": "every",
+        "newCount": 2
+       },
+       "since": 1763999400000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  },
+  {
+   "name": "every: still firing with no new messages is not sent",
+   "prev": [
+    {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "R1",
+     "tone": "critical",
+     "value": "1",
+     "limit": "above 5",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "mode": "every",
+      "newCount": 1
+     },
+     "since": 1763999400000,
+     "checkedAt": 1763999700000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "R1",
+     "tone": "critical",
+     "value": "0",
+     "limit": "above 5",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "mode": "every",
+      "newCount": 0
+     }
+    }
+   ],
+   "at": 1764000000000,
+   "present": [
+    "rule/r1"
+   ],
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "rule",
+      "dashboardName": "",
+      "widgetId": "r1",
+      "title": "R1",
+      "tone": "critical",
+      "value": "0",
+      "limit": "above 5",
+      "queue": "orders",
+      "rule": {
+       "kind": "cause",
+       "ruleId": "r1",
+       "mode": "every",
+       "newCount": 0
+      },
+      "since": 1763999400000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [],
+    "gone": []
+   }
+  },
+  {
+   "name": "quiet: new messages while already firing: not sent again",
+   "prev": [
+    {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "R1",
+     "tone": "critical",
+     "value": "1",
+     "limit": "above 5",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "mode": "quiet",
+      "newCount": 1
+     },
+     "since": 1763999400000,
+     "checkedAt": 1763999700000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "R1",
+     "tone": "critical",
+     "value": "2",
+     "limit": "above 5",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "mode": "quiet",
+      "newCount": 2
+     }
+    }
+   ],
+   "at": 1764000000000,
+   "present": [
+    "rule/r1"
+   ],
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "rule",
+      "dashboardName": "",
+      "widgetId": "r1",
+      "title": "R1",
+      "tone": "critical",
+      "value": "2",
+      "limit": "above 5",
+      "queue": "orders",
+      "rule": {
+       "kind": "cause",
+       "ruleId": "r1",
+       "mode": "quiet",
+       "newCount": 2
+      },
+      "since": 1763999400000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [],
+    "gone": []
+   }
   }
  ],
  "causeRule": [
@@ -4418,6 +4648,161 @@
     "tone": "critical",
     "newCount": 0,
     "changes": []
+   }
+  ]
+ },
+ "everyWalk": {
+  "rule": {
+   "id": "r1",
+   "kind": "cause",
+   "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+   "causeId": "c-abc",
+   "label": "orders-handler raised TimeoutError",
+   "queue": "orders",
+   "channels": [
+    "ch1"
+   ],
+   "mode": "every",
+   "quietS": 0,
+   "mutedUntil": null,
+   "mutedBy": null,
+   "mutedAt": null,
+   "createdBy": "u1",
+   "createdAt": 1763827200000,
+   "updatedAt": 1763827200000
+  },
+  "group": {
+   "id": "c-abc",
+   "key": "v1|orders|handler|exc:TimeoutError:abc",
+   "label": "orders-handler raised TimeoutError",
+   "queue": "orders",
+   "count": 1,
+   "basis": "exception",
+   "inferred": false
+  },
+  "checks": [
+   {
+    "at": 1764000000000,
+    "causeOf": {}
+   },
+   {
+    "at": 1764000300000,
+    "causeOf": {
+     "m1": "c-abc"
+    }
+   },
+   {
+    "at": 1764000600000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc"
+    }
+   },
+   {
+    "at": 1764000900000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    }
+   },
+   {
+    "at": 1764001200000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    }
+   },
+   {
+    "at": 1764001500000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    }
+   },
+   {
+    "at": 1764001800000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc",
+     "m5": "c-abc"
+    }
+   },
+   {
+    "at": 1764002100000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc",
+     "m5": "c-abc"
+    }
+   }
+  ],
+  "expected": [
+   {
+    "at": 1764000000000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764000300000,
+    "tone": "critical",
+    "newCount": 1,
+    "changes": [
+     "fired"
+    ]
+   },
+   {
+    "at": 1764000600000,
+    "tone": "critical",
+    "newCount": 1,
+    "changes": [
+     "fired"
+    ]
+   },
+   {
+    "at": 1764000900000,
+    "tone": "critical",
+    "newCount": 1,
+    "changes": [
+     "fired"
+    ]
+   },
+   {
+    "at": 1764001200000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": [
+     "resolved"
+    ]
+   },
+   {
+    "at": 1764001500000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764001800000,
+    "tone": "critical",
+    "newCount": 2,
+    "changes": [
+     "fired"
+    ]
+   },
+   {
+    "at": 1764002100000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": [
+     "resolved"
+    ]
    }
   ]
  }

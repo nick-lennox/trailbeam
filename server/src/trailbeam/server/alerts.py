@@ -17,7 +17,9 @@ fixture, the stored state and, later, the API carry them unchanged. There are tw
   while ("quiet"), or at every check that finds new ones ("every"). check_cause_rule() works it out at one check.
 
 diff() compares what every rule is now with what was stored at the last check and says what changed. Only changes
-are delivered; a rule that stays critical is not sent again, nor one whose figure is missing for a check or two.
+are delivered; a rule that stays critical is not sent again, nor one whose figure is missing for a check or two,
+except an "every" cause rule, which sends a "fired" change at each check that finds new messages, also while it is
+already firing (QV-659).
 """
 from __future__ import annotations
 
@@ -69,6 +71,13 @@ def key_of(a: dict) -> str:
     return f"{a['dashboardId']}/{a['widgetId']}"
 
 
+def _fires_again(o: dict) -> bool:
+    """An "every" cause rule still firing, with new messages at this check: it sends again."""
+    r = o.get("rule") or {}
+    return (o["tone"] == "critical" and r.get("kind") == "cause" and r.get("mode") == "every"
+            and (r.get("newCount") or 0) > 0)
+
+
 def diff(prev: Iterable[dict], now: Iterable[dict], at: int, present: Optional[Iterable[str]] = None) -> dict:
     """What the stored state becomes, and the changes to deliver: {"next", "changes", "gone"}.
 
@@ -84,7 +93,8 @@ def diff(prev: Iterable[dict], now: Iterable[dict], at: int, present: Optional[I
     that was firing then sends a "resolved" change with ``noLongerChecked`` set on its alert (the stored record, at
     this check), so a channel doesn't show it firing for good. An "Alert me" rule's state is dropped when the rule is
     deleted, so its removal sends nothing. A change is {"kind": "fired" | "changed" | "resolved", "from": the tone
-    before or None, "alert": the new stored record}."""
+    before or None, "alert": the new stored record}. An "every" cause rule that stays critical with new messages at
+    this check fires again, from "critical", its ``since`` kept."""
     before = {key_of(s): s for s in prev}
     nxt: list = []
     changes: list = []
@@ -95,6 +105,8 @@ def diff(prev: Iterable[dict], now: Iterable[dict], at: int, present: Optional[I
         s = {**o, "since": p["since"] if same else at, "checkedAt": at}
         nxt.append(s)
         if same:
+            if _fires_again(o):
+                changes.append({"kind": "fired", "from": p["tone"], "alert": s})
             continue
         if p is None:
             if o["tone"] != "good":

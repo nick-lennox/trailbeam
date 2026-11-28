@@ -15,9 +15,9 @@ const SRC = new URL("../src/", import.meta.url).pathname;
 const files = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? files(join(dir, d.name)) : /\.tsx?$/.test(d.name) ? [join(dir, d.name)] : []));
 
-const CLIENT_CONTEXTS = ["design/nav.tsx", "design/theme.tsx"];
+const CLIENT_CONTEXTS = ["charts/TimeSeries.tsx", "design/nav.tsx", "design/theme.tsx"];
 
-test("no module of the package calls createContext, except the design entry's two client modules", () => {
+test("no module of the package calls createContext, except the client modules that share a context", () => {
   const found = files(SRC).filter((f) => /\bcreateContext\b/.test(readFileSync(f, "utf8"))).map((f) => f.slice(SRC.length)).sort();
   assert.deepEqual(found, CLIENT_CONTEXTS, "a context made at load breaks a server-side import of @trailbeam/ui");
   for (const f of CLIENT_CONTEXTS) assert.match(readFileSync(join(SRC, f), "utf8"), /^"use client";/, `${f} must be a client module`);

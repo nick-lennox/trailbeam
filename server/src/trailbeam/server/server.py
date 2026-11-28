@@ -20,6 +20,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 from . import __version__
 from . import github as github_mod
 from . import queues as queues_mod
+from . import queue_now as queue_now_mod
 from . import alerts_api, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passkeys as passkeys_mod, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
@@ -618,8 +619,10 @@ class App:
         """``/api/queues/{queue}/series``: the queue page's charts (QV-360 design 4.3, 9), per bucket of ``step_s``
         over [from_ms, to_ms] (default: the last day, and the page's step for the range). ``{queue}`` is a queue key
         (queues.key, URL-encoded) or a queue's name, when one queue has it. queues.py says what each figure counts."""
-        if len(rest) != 2 or rest[1] != "series":
+        if len(rest) != 2 or rest[1] not in ("series", "now"):
             raise ApiError(404, "no such endpoint")
+        if rest[1] == "now":
+            return self.queue_now(q, rest[0])
         from_ms, to_ms = self._window(q)
         # only when given: the default is the page's rule for the window (queues.default_step)
         step = (_int(q, "step_s", -1, queues_mod.STEPS_S[0], queues_mod.STEPS_S[-1]) if "step_s" in q
@@ -644,6 +647,19 @@ class App:
                 "max_receive_count": mrc,
                 "series": queues_mod.series(rows, step, mrc, by_version=split == "version"),
                 "versions": queues_mod.versions(rows)}
+
+    def queue_now(self, q: dict, asked: str) -> dict:
+        """``/api/queues/{queue}/now``: "In ‹queue› now" from spans alone (queue_now.py), the hosted app's
+        ``InQueueView`` with no SQS totals. ``{queue}`` is a queue key or name, as for ``series``."""
+        try:
+            keys = self.db.queue_keys()
+        except NotImplementedError as e:
+            raise ApiError(501, str(e)) from None
+        want, place = self._queue_keys(asked, keys)
+        return {"queue": {"key": want[0], "name": place.name, "account": place.account, "region": place.region,
+                          "fifo": place.name.endswith(".fifo")},
+                **queue_now_mod.view(self.db, want, place, self.now(), self._lambda_timeout(q), self.max_receive_counts,
+                                     limit=_int(q, "limit", queue_now_mod.LIST_LIMIT, 1, queue_now_mod.LIST_LIMIT))}
 
     def flows(self, q: dict, rest: list[str]) -> dict:
         """``/api/flows``: the overview's flows over [from_ms, to_ms] (default: the last day): per queue, who sends to
