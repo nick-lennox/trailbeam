@@ -26,6 +26,8 @@ export type AlertsState = { kind: "loading" } | { kind: "off" } | { kind: "error
 
 /** The setting that turns the scheduled check, and with it these routes, on (alerts_scheduler.ENV). */
 export const ALERT_SETTING = "TRAILBEAM_ALERT_CHECK";
+/** The setting that lets webhooks go to this server's own network (alerts_api.PRIVATE_WEBHOOKS_ENV, QV-764). */
+export const PRIVATE_WEBHOOKS_SETTING = "TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS";
 
 export const SHELL_ALERT_HREFS: AlertHrefs = {
   channels: "/alerts#channels",
@@ -92,6 +94,9 @@ export function useAlerts() {
 export const ALERTS_ABOUT = "Trailbeam checks every alert rule on a schedule and sends each change to the rule's channels: when a rule starts firing, "
   + "moves between warning and critical, or recovers. A rule that stays firing is not sent again.";
 export const SECRET_NOTE = "Shown only now: copy it into the receiving end, which checks each request's signature with it. Remove the channel and add it again for a new secret.";
+export const CHANNELS_ABOUT = "Where alerts go: a Slack channel, a webhook, or email through this server's mail server.";
+export const PRIVATE_WEBHOOKS_TEXT = "A webhook must be https on a public host unless the server is started with";
+export const PRIVATE_WEBHOOKS_AFTER = "set to 1: then it can also be an internal endpoint, such as http://alertmanager:9093/… or https://relay.internal/…. Plain http goes only to private addresses, and cloud metadata addresses stay refused.";
 export const OFF_TEXT = `Alerts are off on this server. Start it with ${ALERT_SETTING} set to on (a check every 5 minutes) or to a number of minutes from 1 to 1440.`;
 
 export function AlertsPage() {
@@ -118,7 +123,8 @@ export function AlertsPage() {
               <span role={check.late ? "alert" : undefined} className={`mt-1 block text-xs ${check.late ? "text-critical-text" : "text-ink-3"}`}>{check.text}</span></>}>
               <AlertRules view={data.view} canManage={data.canManage} actions={rules} hrefs={SHELL_ALERT_HREFS} changed={changed} />
             </SettingsSection>
-            <SettingsSection id="channels" title="Channels" about="Where alerts go: a Slack channel, a webhook, or email through this server's mail server.">
+            <SettingsSection id="channels" title="Channels" about={<>{CHANNELS_ABOUT}
+              <span className="mt-1 block text-xs text-ink-3" data-private-webhooks>{PRIVATE_WEBHOOKS_TEXT} <code className="font-mono text-caption">{PRIVATE_WEBHOOKS_SETTING}</code> {PRIVATE_WEBHOOKS_AFTER}</span></>}>
               <AlertChannels channels={withSecrets(data.channels)} canManage={data.canManage} actions={channels} secretNote={SECRET_NOTE} changed={changed} />
             </SettingsSection>
           </>

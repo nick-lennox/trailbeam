@@ -154,14 +154,14 @@ def check_mute(for_s: Any, at: int) -> dict:
     return {"ok": True, "mutedUntil": until}
 
 
-def check_channel_form(f: dict, allow_local: bool = False) -> dict:
+def check_channel_form(f: dict, allow_local: bool = False, allow_private: bool = False) -> dict:
     """A new channel (channels.ts addChannel, before it is stored): {"ok": True, "kind", "name", "target",
     "minTone"}, or {"ok": False, "error"}."""
     kind = f.get("kind")
     if kind not in alert_delivery.CHANNEL_KINDS:
         return _fail("Pick webhook, Slack or email.")
     min_tone = "critical" if f.get("minTone") == "critical" else "warning"
-    t = alert_delivery.check_target(kind, _text(f.get("target")), allow_local)
+    t = alert_delivery.check_target(kind, _text(f.get("target")), allow_local, allow_private)
     if not t["ok"]:
         return t
     return {"ok": True, "kind": kind, "name": _name(kind, f.get("name")), "target": t["target"], "minTone": min_tone}
@@ -531,7 +531,7 @@ class AlertsApi:
                      "max": MAX_CHANNELS, "canManage": self.is_manager(who)}
 
     def add_channel(self, rid, body, who) -> tuple[int, dict]:
-        f = check_channel_form(body, self.delivery.allow_local)
+        f = check_channel_form(body, self.delivery.allow_local, self.delivery.allow_private)
         if not f["ok"]:
             raise ApiProblem(400, f["error"])
         ws = self.ws_id
@@ -553,7 +553,8 @@ class AlertsApi:
         if "minTone" in body:
             fields["minTone"] = "critical" if body["minTone"] == "critical" else "warning"
         if "target" in body:
-            t = alert_delivery.check_target(c["kind"], _text(body["target"]), self.delivery.allow_local)
+            t = alert_delivery.check_target(c["kind"], _text(body["target"]), self.delivery.allow_local,
+                                            self.delivery.allow_private)
             if not t["ok"]:
                 raise ApiProblem(400, t["error"])
             fields["target"] = t["target"]
@@ -610,12 +611,16 @@ def for_app(app, env=None) -> AlertsApi | None:
     tables (alerts_store.AlertTables), so channels and their secrets outlive a restart and every server process on one
     database shares them; a store without them (a test double) keeps them in memory. Links point to --public-url and
     email goes through the operator's mail server (TRAILBEAM_SMTP_HOST, app.mailer), as for invites (QV-674).
-    ValueError on a setting the check can't take (alerts_scheduler.check_every_min)."""
+    Webhooks may go to this server's own network when TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS is on (QV-764,
+    allow_private_webhooks). ValueError on a setting the check can't take (alerts_scheduler.check_every_min, and
+    that switch)."""
     from . import alerts_scheduler, alerts_store
 
-    every = alerts_scheduler.check_every_min(os.environ if env is None else env)
+    env = os.environ if env is None else env
+    every = alerts_scheduler.check_every_min(env)
     if every is None:
         return None
+    allow_private = allow_private_webhooks(env)
 
     def is_manager(who) -> bool:
         return app.access.mode() != "accounts" or getattr(who, "role", None) == "admin"
@@ -629,8 +634,27 @@ def for_app(app, env=None) -> AlertsApi | None:
         log.warning("alerts: --public-url is not set, so the links in scheduled alerts point to %s", LOCAL_BASE)
     mailer = getattr(app, "mailer", None)
     delivery = alert_delivery.Delivery(base=app.public_url or LOCAL_BASE,
-                                       smtp=getattr(mailer, "smtp", None))
+                                       smtp=getattr(mailer, "smtp", None), allow_private=allow_private)
+    if allow_private:
+        log.info("alerts: %s is on, so webhooks may go to private and plain-http addresses on this network",
+                 PRIVATE_WEBHOOKS_ENV)
     return AlertsApi(store, WORKSPACE, causes, delivery, every_min=every, is_manager=is_manager)
+
+
+#: the operator's switch for alert webhooks on this server's own network (alert_delivery.Delivery.allow_private)
+PRIVATE_WEBHOOKS_ENV = "TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS"
+
+
+def allow_private_webhooks(env) -> bool:
+    """TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS: 1, true, yes or on lets a webhook or Slack channel point at a private
+    or local address, over https or plain http (plain http only to private addresses); off by default. Cloud
+    metadata addresses stay refused. ValueError on anything else, so a typo doesn't silently leave it off."""
+    raw = str(env.get(PRIVATE_WEBHOOKS_ENV, "")).strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("", "0", "false", "no", "off"):
+        return False
+    raise ValueError(f"{PRIVATE_WEBHOOKS_ENV} is 1 (on) or 0 (off), not {raw!r}")
 
 
 #: where scheduled alerts link without --public-url (a test send links to the address it was asked at)
