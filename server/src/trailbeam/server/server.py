@@ -23,7 +23,7 @@ from . import queues as queues_mod
 from . import queue_now as queue_now_mod
 from . import alerts_api, aws_api, redrive_api, queue_data, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passkeys as passkeys_mod, passwords, people_api, queries, \
-    sessions as sessions_mod, trace_links, ui_files, web
+    sessions as sessions_mod, sky, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .sessions import Sessions
@@ -371,8 +371,8 @@ class App:
         if not parts or parts[0] not in self.routes:
             raise ApiError(404, f"no such endpoint: /api/{'/'.join(parts)}")
         try:
-            if parts[0] == "me":
-                return self.routes["me"](query, parts[1:], who)
+            if parts[0] in ("me", "health"):
+                return self.routes[parts[0]](query, parts[1:], who)
             return self.routes[parts[0]](query, parts[1:])
         except queries.CursorError as e:
             raise ApiError(400, str(e)) from None
@@ -394,7 +394,7 @@ class App:
         """/api/users and /api/tokens paths that aren't one of access.API_ROUTES (matched in api)."""
         raise ApiError(404, "no such endpoint")
 
-    def health(self, query: dict, rest: list[str]) -> dict:
+    def health(self, query: dict, rest: list[str], who: access_mod.Who = access_mod.NOBODY) -> dict:
         """Cheap at any size: the ingest counters since start, the configuration, and one indexed read on a
         read connection (``last_row``), so it answers while an export is being written. The exact counts,
         which read the whole table, are ``/api/stats``."""
@@ -419,8 +419,9 @@ class App:
                            "store_bodies": sorted(self.db.store_bodies), "trace_link": self.trace_link,
                            "proxy_auth": self.proxy_signin is not None,
                            "passkeys": self.passkeys is not None,
-                           # AWS reads (aws_api.py): {"on": False, ...} until an admin turns them on
-                           "aws": self.aws.health() if self.aws is not None else None,
+                           # AWS reads (aws_api.py): {"on": False, ...} until an admin turns them on; the details
+                           # (where the credentials come from, the region) only to an admin (QV-744)
+                           "aws": self.aws.health(who) if self.aws is not None else None,
                            "retention": self.purger.status() if self.purger else None}}
 
     def _mode(self) -> str:
@@ -446,7 +447,9 @@ class App:
         sign_out = who.via in ("session", "shared_cookie") or (
             who.via == "proxy" and self.proxy_auth is not None and self.proxy_auth.sign_out_url is not None)
         # which off-by-default parts are on, so the UI shows their pages without asking routes that would 404 (QV-766)
-        features = {"dashboards": self.dashboards is not None, "alerts": self.alerts is not None}
+        # and whether users and roles are on (TRAILBEAM_ACCOUNTS), so a page without a person says how to get one (QV-767)
+        features = {"dashboards": self.dashboards is not None, "alerts": self.alerts is not None,
+                    "accounts": self.accounts is not None}
         out = {"auth": self._mode(), "via": who.via, "user": user, "sign_out": sign_out, "features": features}
         ways = self._sign_in_ways(who.user_id)
         if ways is not None:
@@ -1052,6 +1055,9 @@ def make_handler(app: App):
             if path in (github_mod.START_PATH, github_mod.CALLBACK_PATH):
                 self._sso(github_mod, app.github, "GitHub sign-in", path, q)
                 return
+            if ui_files.is_font(path):  # the sign-in pages' fonts, before anyone is signed in (sky.py)
+                self._page(path, q)
+                return
             if path == people_api.LINK_PATH:
                 self._send_page(web.password_page() if app.accounts is not None else
                                 (404, {"Content-Type": "text/plain"}, b"not found"))
@@ -1500,7 +1506,7 @@ def make_handler(app: App):
             self._send(303, "text/plain", b"", {"Location": "/", "Referrer-Policy": "no-referrer", **cookie})
 
         def _send_page(self, r):
-            status, headers, body = r
+            status, headers, body = sky.with_fonts(r, app.ui_dir)
             headers = dict(headers)
             ctype = headers.pop("Content-Type", "text/plain")
             self._send(status, ctype, body, headers)

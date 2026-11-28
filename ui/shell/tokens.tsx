@@ -3,16 +3,17 @@
   Admins see the ingest tokens (/api/tokens/ingest, with the legacy shared token from TRAILBEAM_TOKEN listed but not
   changeable) and everyone sees their own personal API tokens (/api/me/tokens): create (POST, which answers with the
   token, shown once) and revoke (DELETE .../{id}). After each, the list is read again, so the page shows what the
-  server holds. contract/openapi.yaml, tag Tokens.
+  server holds. contract/openapi.yaml, tag Tokens. Signed in without a person, the page says how a person gets an
+  account on this server (with accounts off, that starts with TRAILBEAM_ACCOUNTS=1, QV-767).
 */
 import { useCallback, useEffect, useState } from "react";
 import {
-  INGEST_TEXT, OPEN_INGEST, PERSONAL_TEXT,
+  INGEST_TEXT, OPEN_INGEST, PERSONAL_TEXT, withoutPerson,
   type IngestTokenList, type NewToken, type NewTokenRequest, type PersonalToken, type TokenKind,
 } from "../src/index.ts";
 import { Caution, CodeText, CreateToken, OneTimeToken, PageHeader, Problem, SettingsSection, TokensTable } from "../src/design/index.ts";
 import { getJSON, sendJSON, useMe } from "./chrome.tsx";
-import { ShellFrame, ShellSearch } from "./frame.tsx";
+import { ShellFrame, ShellSearch, featureOn } from "./frame.tsx";
 
 type Load<T> = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; data: T };
 type Shown = { kind: TokenKind; name: string; secret: string };
@@ -71,8 +72,9 @@ export function TokensPage() {
       <div className="grid max-w-5xl gap-12 px-8 pb-16">
         {me && !person && (
           <p className="max-w-2xl text-sm leading-relaxed text-ink-2">
-            Tokens belong to a person: sign in with your email and password to manage yours.
-            {me.auth !== "accounts" && <> This server has no accounts yet; the first admin is made with <code className="font-mono text-caption">trailbeam users create --role admin</code>.</>}
+            {me.auth === "accounts"
+              ? "Tokens belong to a person: sign in with your email and password to manage yours."
+              : `Tokens belong to a person, and this browser isn't signed in as one. ${withoutPerson({ via: me.via, accounts: featureOn(me, "accounts") }).accounts}`}
           </p>
         )}
         {shown && <OneTimeToken {...shown} onDismiss={() => setShown(null)} />}

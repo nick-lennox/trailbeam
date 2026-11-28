@@ -18,7 +18,7 @@ export {
   linkSentence, notSentSentence, removeSentence, unsentSentence, removeSsoNote, signInAdmins,
 } from "./people/People.tsx";
 export type * from "./people/types.ts";
-export { ACCOUNT_ABOUT, PASSKEYS_ABOUT, PASSKEY_NOT_SAVED, WAY_OFF, accountWays, deviceName } from "./account/text.ts";
+export { ACCOUNT_ABOUT, PASSKEYS_ABOUT, PASSKEY_NOT_SAVED, WAY_OFF, accountWays, deviceName, withoutPerson } from "./account/text.ts";
 export type * from "./account/types.ts";
 export {
   DEFAULT_EXPIRY, EXPIRY, INGEST_TEXT, OPEN_INGEST, OPEN_INGEST_CONFIRM, PERSONAL_TEXT,

@@ -3,14 +3,19 @@
 Sign in, the token page, Create your admin account, Choose your password, Sign-in failed and Not allowed are
 rendered here by the server, not by the shared UI's shell: they answer before anyone is signed in, and they work
 with or without the shell's build and without scripts. So each page is one response: its styles are inline, the
-logo and icons are inline SVG, and nothing is fetched (the shell's files under /ui/ are behind sign-in). The colors
-are @trailbeam/ui's sky tokens (ui/src/design/tokens.css). The families are the design system's, Newsreader for the
-wordmark and headings, Instrument Sans for labels and prose and IBM Plex Mono for values only, used when the
-browser has them; otherwise the system's serif, sans and mono stand in.
+logo and icons are inline SVG, and nothing is fetched but the fonts. The colors are @trailbeam/ui's sky tokens
+(ui/src/design/tokens.css). The families are the design system's, Newsreader for the wordmark and headings,
+Instrument Sans for labels and prose and IBM Plex Mono for values only. They are the shell's own font files (QV-775):
+with_fonts copies the shell's @font-face rules into the page, and the server answers /ui/assets/*.woff2 and *.woff
+before sign-in (ui_files.is_font). Without the shell's build, the system's serif, sans and mono stand in.
 """
 from __future__ import annotations
 
+import re
+from functools import lru_cache
 from html import escape
+from pathlib import Path
+from typing import Optional
 
 from . import __version__, logo
 
@@ -110,6 +115,43 @@ def page(status: int, title: str, body: str) -> Response:
             f'<footer><span>Trailbeam <span class="mono">{escape(__version__)}</span></span>'
             '<a href="/api/health">Server health</a></footer></body></html>')
     return status, {"Content-Type": "text/html; charset=utf-8"}, html.encode()
+
+
+_FONT_FACE = re.compile(r"@font-face\s*\{[^{}]*\}")
+
+
+@lru_cache(maxsize=4)
+def _faces(css_files: tuple) -> str:
+    out: list[str] = []
+    for path, _mtime in css_files:
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        out += [f for f in _FONT_FACE.findall(text) if f not in out]
+    return "".join(out)
+
+
+def font_faces(ui_dir: Optional[Path]) -> str:
+    """The shell's @font-face rules (ui/shell/fonts.css, as built into ``ui_dir``), or "" without a build. They name
+    the built font files, /ui/assets/<family>-<subset>-<weight>-<style>-<hash>.woff2, so the sign-in pages load the same
+    files as the shell, and a browser that has them from one has them for the other."""
+    if ui_dir is None:
+        return ""
+    try:
+        files = tuple(sorted((str(f), f.stat().st_mtime_ns) for f in (Path(ui_dir) / "assets").glob("*.css")))
+    except OSError:
+        return ""
+    return _faces(files)
+
+
+def with_fonts(r: Response, ui_dir: Optional[Path]) -> Response:
+    """``r`` (a page from :func:`page`; anything else is returned as it is) with the shell's fonts in its styles."""
+    status, headers, body = r
+    faces = font_faces(ui_dir) if b"<style>" + CSS.encode()[:16] in body else ""
+    if not faces:
+        return r
+    return status, headers, body.replace(b"</style>", f"{faces}</style>".encode(), 1)
 
 
 def field(label: str, input_html: str, *, hint: str = "", row_id: str = "") -> str:

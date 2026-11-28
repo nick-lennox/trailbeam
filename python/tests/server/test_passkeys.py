@@ -512,7 +512,7 @@ def test_the_sign_in_page_has_the_passkey_button(srv):
     assert st == 200
     assert b'id="passkey" data-next="/stuck"' in body and b"Sign in with a passkey" in body
     assert b"/login/passkey/options" in body
-    assert b"Or sign in with your Trailbeam email and password." in body
+    assert b"or with your email" in body
     assert srv("GET", "/api/health", None, srv.admin)[2]["config"]["passkeys"] is True
     # a wrong password keeps the button
     st, _, body = request(srv.url, "POST", "/login", b"email=ada%40example.com&password=nope",
