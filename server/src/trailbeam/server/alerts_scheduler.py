@@ -129,8 +129,9 @@ class AlertScheduler:
         while not self._stop.is_set():
             began = self.clock()
             w = threading.Thread(target=self.tick, name="trailbeam-alert-check-run", daemon=True)
-            self._worker = w
+            # published only once started: stop() joins it, and joining a thread not yet started raises
             w.start()
+            self._worker = w
             w.join(self.deadline_s)
             if w.is_alive():
                 # a thread can't be stopped from outside: say so, and start no other check until it returns
