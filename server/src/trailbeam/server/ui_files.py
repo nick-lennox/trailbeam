@@ -3,7 +3,8 @@
 When the build is present, ``/`` (Messages, or the first-run screen while no span is stored), ``/duplicates``,
 ``/overview``, ``/stuck``, ``/message``, ``/tenants``, ``/queue``, ``/queues``, ``/events`` (the Event explorer, which has no HTML
 page), ``/dashboards`` (which reads /api/dashboards, there only while TRAILBEAM_DASHBOARDS is on, and has no HTML
-page), ``/people`` (admins only, access.py), ``/tokens`` and ``/account`` are the shell's page, which draws them from the JSON API in the
+page), ``/alerts`` (alert rules and channels, QV-592; it says how to turn the alert check on while it is off),
+``/people`` (admins only, access.py), ``/tokens`` and ``/account`` are the shell's page, which draws them from the JSON API in the
 browser, and ``/ui/...`` serves its files. When it is not (an editable install from a clone that
 was never built), these return None and the server-rendered HTML pages answer instead.
 """
@@ -17,7 +18,7 @@ Response = tuple  # (status, headers, body), as web.handle returns
 
 DEFAULT_UI_DIR = Path(__file__).resolve().parent / "ui"
 SHELL_PAGES = ("/", "/overview", "/duplicates", "/stuck", "/message", "/tenants", "/queue", "/queues", "/events", "/dashboards",
-               "/people", "/tokens", "/account")
+               "/people", "/tokens", "/account", "/alerts")
 _TYPES = {".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".woff": "font/woff",
           ".html": "text/html; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
 

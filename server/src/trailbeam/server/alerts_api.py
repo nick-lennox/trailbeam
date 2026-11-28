@@ -467,7 +467,7 @@ class AlertsApi:
     def list_rules(self, rid, body, who) -> tuple[int, dict]:
         at, states = self.now(), self._rule_states()
         return 200, {"rules": [self._rule_view(r, states, at) for r in self.store.list_rules(self.ws_id)],
-                     "checkEvery": check_every(self.every_min), "cadence": cadence_note(self.every_min),
+                     "checkEvery": check_every(self.every_min), "everyMin": self.every_min, "cadence": cadence_note(self.every_min),
                      "quietChoices": quiet_choices(self.every_min), "defaultQuiet": default_quiet(self.every_min),
                      "snoozes": list(SNOOZES_S), "max": MAX_RULES}
 
@@ -595,7 +595,8 @@ class AlertsApi:
         ws = self.ws_id
         states = sorted(self.store.alert_states(ws), key=lambda s: (s["dashboardId"], s["widgetId"]))
         return 200, {"alerts": states, "checkedAt": self.store.last_check(ws),
-                     "hasChannel": bool(self.store.list_channels(ws)), "checkEvery": check_every(self.every_min)}
+                     "hasChannel": bool(self.store.list_channels(ws)), "checkEvery": check_every(self.every_min),
+                     "everyMin": self.every_min}
 
 
 # ── in the server ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -634,3 +635,65 @@ def for_app(app, env=None) -> AlertsApi | None:
 
 #: where scheduled alerts link without --public-url (a test send links to the address it was asked at)
 LOCAL_BASE = "http://localhost"
+
+
+def check_deps(app, api: AlertsApi):
+    """What the scheduled check (alerts_run.run_alerts) reads and writes in the server, on the API's store, so the
+    check and the API share rules, channels and state:
+
+    - ``dashboards``: the dashboards' rules, when TRAILBEAM_DASHBOARDS is on (app.dashboards), else none;
+    - ``data``: what those rules need (alerts_run.alert_needs), read as the dashboards' measures read it
+      (dashboards_api.event_data), from as far back as the longest rule's range;
+    - ``causes``: the stuck messages grouped as Stuck (``/api/causes``) groups them, with each message's cause;
+    - ``channels`` and ``deliver``: the workspaces with a channel, and each change sent to every channel that wants
+      it (alert_delivery.deliver), its outcome noted on the channel as a test send's is. A channel that fails is
+      noted, not retried: as the hosted app's deliverChanges, the next change goes out at the next check.
+
+    No triage yet: no rule is held while its cause is ignored."""
+    from . import alerts_run, causes as causes_mod, dashboards_api
+
+    store, ws = api.store, api.ws
+    ns = 1_000_000
+
+    def dashboards(only):
+        board = app.dashboards
+        if board is None or (only is not None and only != api.ws_id):
+            return {}
+        return {api.ws_id: board.store.list_dashboards(board.ws)}
+
+    def data(ws_id, boards):
+        now = app.now() // ns
+        need = alerts_run.alert_needs(boards)
+        since = now - int(need.get("sinceMs") or 0)
+        return dashboards_api.event_data(app.db, now, since, app.lambda_timeout_s, app.max_receive_counts)
+
+    def causes(ws_id):
+        read = causes_mod.read_unfinished(app.db, app.now(), app.lambda_timeout_s, app.max_receive_counts,
+                                          app.stuck_after_s)
+        assign: dict = {}
+        groups = causes_mod.in_range(read["classified"], read["first_seen"], None, None, assign)
+        return {"groups": [causes_mod.public(g) for g in groups], "causeOf": assign, "capped": read["capped"]}
+
+    def deliver(ws_id, changes):
+        for o in alert_delivery.deliver(store.list_channels(ws_id), ws, changes, api.delivery):
+            try:
+                store.note_delivery(ws_id, o["channel"], o["at"], o["ok"], o["detail"])
+            except Exception:  # noqa: BLE001 - the changes went out; only the note on the channel is lost
+                log.warning("alert check: could not note a delivery on channel %s", o["channel"], exc_info=True)
+
+    return alerts_run.Deps(store=store, dashboards=dashboards, data=data, causes=causes,
+                           channels=store.workspaces_with_channels, deliver=deliver,
+                           now=lambda: app.now() // ns)
+
+
+def start_check(app):
+    """Starts the scheduled check in this server process (alerts_scheduler.AlertScheduler), on the alerts API's
+    store, when the check is on (app.alerts); None otherwise. Every replica of one store runs it: each workspace's
+    lease (alerts_run.LEASE_MS) lets one check it at a time."""
+    from . import alerts_run, alerts_scheduler
+
+    if app.alerts is None:
+        return None
+    deps = check_deps(app, app.alerts)
+    return alerts_scheduler.AlertScheduler(lambda: alerts_run.run_alerts(deps), app.alerts.every_min * 60,
+                                           lambda: alerts_run.has_rules(deps)).start()
