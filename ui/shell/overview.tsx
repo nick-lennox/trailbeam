@@ -24,6 +24,7 @@ import { ApiError, CopyLink, getHealth, getJSON } from "./chrome.tsx";
 import { eventsHref, timelineEventsQuery } from "./events.tsx";
 import { qs } from "./lists.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
+import { issuesHref } from "./issues.tsx";
 
 const DOCS = "https://github.com/nick-lennox/trailbeam/blob/main/docs/api.md#list-flows";
 const atOf = (f: Pick<Flow, "account" | "region">) => (f.account ? `${f.account}:${f.region ?? ""}` : null);
@@ -117,6 +118,13 @@ function ShellPartMessages({ at, queue, window: w, time, live }: { at: PartMessa
   );
 }
 
+/**
+ * Issues (or one issue, with `id`) at the Overview's range, so a count clicked is the count the page opens on: a range
+ * that ends now as its preset, a fixed one as its times. The Issues list's default is the past day, so the past hour is
+ * named too.
+ */
+export const overviewIssuesHref = (time: TimeRange, queue: string | null, id?: string) => issuesHref({ age: null, range: time }, queue, id);
+
 export function OverviewPage() {
   const [u, setU] = useState<FlowsUrl>(() => readFlowsUrl(new URLSearchParams(location.search), Date.now()));
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -145,7 +153,7 @@ export function OverviewPage() {
     ]).then(async ([r, causes]) => {
       const now = Object.fromEntries(await Promise.all(r.flows.map((f) => nowOf(f, w.minutes))));
       if (!live) return;
-      const data = selfHostedFlowsData({ range: overviewRangeOf(u.time), window: w, flows: r.flows, causes, now, causeHref: (id) => `/issues/${encodeURIComponent(id)}` });
+      const data = selfHostedFlowsData({ range: overviewRangeOf(u.time), window: w, flows: r.flows, causes, now, causeHref: (id) => overviewIssuesHref(u.time, null, id) });
       setState({ kind: "ok", at, got: { flows: r.flows, data, window: w, aws: anyAwsRead(now) } });
     }, (e: Error) => {
       if (!live) return;
@@ -189,10 +197,10 @@ export function OverviewPage() {
       const f = byLabel.get(name);
       return `/queue?${queueQuery({ name: f?.name ?? name, at: f ? atOf(f) : null, range: queueRangeOf(u.time, asked) })}`;
     },
-    issues: (queue) => `/issues?queue=${encodeURIComponent(nameOf(queue))}`,
-    cause: (c) => c.href ?? "/issues",
+    issues: (queue) => overviewIssuesHref(u.time, nameOf(queue)),
+    cause: (c) => c.href ?? overviewIssuesHref(u.time, null),
     events: (query) => eventsHref(query, u.time),
-    deadLettered: ({ queue }) => `/issues?queue=${encodeURIComponent(nameOf(queue))}`,
+    deadLettered: ({ queue }) => overviewIssuesHref(u.time, nameOf(queue)),
     message: (id) => `/message?id=${encodeURIComponent(id)}`,
   };
   const sidebar = flows.map((f) => ({ name: f.queue, health: state.kind === "ok" ? state.got.data.info[f.queue]?.health ?? null : null }));
@@ -233,7 +241,7 @@ export function OverviewPage() {
       <OverviewFlows
         key={timeKey(u.time)}
         time={{ range: u.time, now: state.kind === "ok" ? state.at : Date.now(), onChange: setTime }}
-        data={got?.data ?? selfHostedFlowsData({ range: overviewRangeOf(u.time), window: { fromMs: 0, toMs: 0, minutes: 1 }, flows: [], causes: null, now: {}, causeHref: () => "/issues" })}
+        data={got?.data ?? selfHostedFlowsData({ range: overviewRangeOf(u.time), window: { fromMs: 0, toMs: 0, minutes: 1 }, flows: [], causes: null, now: {}, causeHref: () => overviewIssuesHref(u.time, null) })}
         flow={u.flow}
         fresh={state.kind === "ok" ? <Since ms={state.at} /> : undefined}
         onFlow={(flow) => { const next = { ...u, flow }; setU(next); history.replaceState(history.state, "", flowsHref(next)); }}
