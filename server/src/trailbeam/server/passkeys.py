@@ -25,6 +25,12 @@ starts), since each adds a row; failed sign-ins count against the address like w
 
 **Counter.** An authenticator that keeps a signature counter must send a higher one each time; one that goes
 back means the passkey may have been copied, and the sign-in is refused. Synced passkeys keep none (always 0).
+The new counter is saved only if it is still ahead of the saved one (``Accounts.passkey_used``), and the session
+starts only then: two sign-ins at once with counters 11 and 10 both pass the library's check against a saved 9,
+and without that the 10 could be saved last, so a later replayed 11 would pass (QV-696).
+
+**Frames.** An answer whose clientDataJSON says ``crossOrigin: true`` (the ceremony ran in a frame inside another
+site's page) is refused, adding or signing in: Trailbeam's pages never ask for a passkey from inside a frame.
 """
 from __future__ import annotations
 
@@ -120,11 +126,12 @@ def passkey_view(p: dict) -> dict:
             "last_used_ms": p["last_used_ms"], "synced": bool(p["backed_up"])}
 
 
-def _challenge_of(credential: dict) -> bytes:
-    """The challenge the browser signed, from the answer's clientDataJSON; PasskeyError if it has none."""
+def _client_data(credential: dict) -> tuple[bytes, bool]:
+    """The challenge the browser signed, from the answer's clientDataJSON, and whether it says the ceremony ran in
+    a cross-origin frame; PasskeyError if it has none."""
     try:
         client_data = json.loads(_unb64(credential["response"]["clientDataJSON"]))
-        return _unb64(client_data["challenge"])
+        return _unb64(client_data["challenge"]), client_data.get("crossOrigin") is True
     except (KeyError, TypeError, ValueError, AttributeError):
         raise PasskeyError(400, REFUSED, "the answer has no readable clientDataJSON") from None
 
@@ -147,13 +154,14 @@ class Passkeys:
         self.accounts.create_passkey_challenge(_sha(c), kind, user_id, now, now + CHALLENGE_TTL_MS)
         return c
 
-    def _take(self, credential: dict, kind: str, user_id: Optional[int]) -> bytes:
-        c = _challenge_of(credential)
+    def _take(self, credential: dict, kind: str, user_id: Optional[int]) -> tuple[bytes, bool]:
+        """The challenge, deleted so it works once, and whether the answer came from a cross-origin frame."""
+        c, cross_origin = _client_data(credential)
         row = self.accounts.take_passkey_challenge(_sha(c), self.now_ms())
         if row is None or row["kind"] != kind or (user_id is not None and row["user_id"] != user_id):
             raise PasskeyError(400, "This passkey request has run out or was used already. Try again.",
                                "an unknown, used or out-of-date challenge")
-        return c
+        return c, cross_origin
 
     # ---- adding one -------------------------------------------------------------------------------------------
 
@@ -174,7 +182,10 @@ class Passkeys:
         """Check what the authenticator made and save it. Raises PasskeyError, or AccountError (too many, saved
         already)."""
         name = check_name(name)
-        challenge = self._take(credential, "register", user_id)
+        challenge, cross_origin = self._take(credential, "register", user_id)
+        if cross_origin:
+            raise PasskeyError(400, "The passkey wasn't saved: your browser's answer didn't check out. Try again.",
+                               "registration refused: the answer came from a frame inside another site's page")
         try:
             v = self._w.verify_registration_response(
                 credential=credential, expected_challenge=challenge, expected_rp_id=self.s.rp_id,
@@ -209,7 +220,9 @@ class Passkeys:
 
     def sign_in(self, credential: dict) -> tuple[int, str, int]:
         """(user ID, session ID, its expiry). Raises PasskeyError."""
-        challenge = self._take(credential, "sign_in", None)
+        challenge, cross_origin = self._take(credential, "sign_in", None)
+        if cross_origin:
+            raise PasskeyError(401, REFUSED, "the answer came from a frame inside another site's page")
         cid = credential.get("rawId") or credential.get("id")
         found = self.accounts.passkey_by_credential(cid) if isinstance(cid, str) and len(cid) <= MAX_CREDENTIAL_ID_B64 else None
         if found is None:
@@ -227,7 +240,10 @@ class Passkeys:
         except Exception as e:  # noqa: BLE001 - InvalidAuthenticationResponse (a bad signature, a counter that went back)
             raise PasskeyError(401, REFUSED, f"passkey {found['id']} of user {found['user_id']}: {e}") from None
         now = self.now_ms()
-        self.accounts.passkey_used(int(found["id"]), int(v.new_sign_count), now)
+        if not self.accounts.passkey_used(int(found["id"]), int(v.new_sign_count), now):
+            raise PasskeyError(401, REFUSED, f"passkey {found['id']} of user {found['user_id']}: counter "
+                               f"{v.new_sign_count} is no longer ahead of the saved one (another sign-in with it "
+                               "saved a later counter meanwhile, or the passkey was removed)")
         sid, expires = self.sessions.start(int(found["user_id"]))
         return int(found["user_id"]), sid, expires
 
