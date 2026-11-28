@@ -1905,7 +1905,7 @@ class PostgresStore(Store):
     # Merge Append that stops after the page), so a page reads about a page of rows whatever the window.
     _STEP_COLS = ("s.time_ns, s.start_ns, s.trace_id, s.span_id, s.kind, s.mid, s.queue, s.service_name, "
                   "s.service_version, s.result, s.error_code, s.outcome, s.error_type, s.receive_count, "
-                  "s.visibility_timeout")
+                  "s.visibility_timeout, s.queue_url")
     _STEP_ORDER = 'time_ns DESC, trace_id COLLATE "C" DESC, span_id COLLATE "C" DESC'
 
     @staticmethod

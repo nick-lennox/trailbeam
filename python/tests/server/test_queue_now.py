@@ -110,6 +110,42 @@ def test_a_queue_of_the_same_name_elsewhere_is_another_queue(db, ingest):
     assert e.value.status == 400
 
 
+ELSEWHERE = "https://sqs.eu-west-1.amazonaws.com/123456789012/orders"
+
+
+def _same_name_elsewhere(ingest_into):
+    """A message sent to 000000000000//orders, and one sent, received and deleted on 123456789012/eu-west-1/orders."""
+    a, b = Consumer("a"), Consumer("b")
+    ingest_into([a.send(T0, "x1")])
+    spans = [b.send(T0, "y1"), b.receive(T0 + SEC, "y1", "hy"), b.delete(T0 + 2 * SEC, "hy")]
+    for s in spans:
+        s.attrs["aws.sqs.queue.url"] = ELSEWHERE
+    ingest_into(spans)
+
+
+def test_a_delete_on_a_queue_of_the_same_name_elsewhere_has_not_left_this_one(db, ingest):
+    _same_name_elsewhere(lambda spans: ingest(*spans))
+    d = now_of(db, T0 + 10 * SEC, path="queues/000000000000%2F%2Forders/now")
+    assert [m["id"] for m in d["held"]] == ["x1"] and d["deleted"] == []
+    there = now_of(db, T0 + 10 * SEC, path="queues/123456789012%2Feu-west-1%2Forders/now")
+    assert there["held"] == [] and there["deleted"] == [{"id": "y1", "atMs": MS + 2000}]
+
+
+def test_the_other_queues_steps_do_not_take_this_ones_places_in_the_limit(db, ingest):
+    from trailbeam.server import queue_now
+    here, there = Consumer("a"), Consumer("b")
+    mine = [s for i in range(2) for s in (here.receive(T0 + i * SEC, f"x{i}", f"hx{i}"),
+                                          here.delete(T0 + i * SEC + 1, f"hx{i}"))]
+    theirs = [s for i in range(5) for s in (there.receive(T0 + 10 * SEC + i, f"y{i}", f"hy{i}"),
+                                            there.delete(T0 + 10 * SEC + i + 1, f"hy{i}"))]
+    for s in theirs:
+        s.attrs["aws.sqs.queue.url"] = ELSEWHERE
+    ingest(*mine, *theirs)
+    # newest first, the other queue's five deletes come before this one's two: a page of 2 holds none of them
+    got = queue_now._steps_of(db, {"000000000000//orders"}, "orders", T0, T0 + 60 * SEC, limit=2)
+    assert [r["time_ns"] for r in got] == [T0 + SEC + 1, T0 + 1]
+
+
 def test_the_list_is_capped(db, ingest):
     w = Consumer("w")
     ingest(*[w.send(T0 + i * SEC, f"m{i}") for i in range(5)])
@@ -146,5 +182,22 @@ def test_a_postgres_store_answers_as_sqlite_does(db):
         at = T0 + 150 * SEC
         assert now_of(pg, at) == now_of(db, at)
         assert [m["id"] for m in now_of(db, at)["held"]] == ["m1", "m2"]
+    finally:
+        pg.close()
+
+
+@pytest.mark.skipif(not os.environ.get("TRAILBEAM_TEST_POSTGRES_URL"), reason="TRAILBEAM_TEST_POSTGRES_URL is not set")
+def test_a_postgres_store_keeps_a_same_named_queue_apart_as_sqlite_does(db):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "conformance"))
+    from pg_helpers import postgres_store
+    pg = postgres_store()
+    try:
+        for store in (db, pg):
+            def into(spans, store=store):
+                store.insert(decode(to_proto(spans, service="orders").SerializeToString(), "application/x-protobuf").records)
+            _same_name_elsewhere(into)
+        for path in ("queues/000000000000%2F%2Forders/now", "queues/123456789012%2Feu-west-1%2Forders/now"):
+            assert now_of(pg, T0 + 10 * SEC, path=path) == now_of(db, T0 + 10 * SEC, path=path)
+        assert now_of(pg, T0 + 10 * SEC, path="queues/000000000000%2F%2Forders/now")["deleted"] == []
     finally:
         pg.close()

@@ -366,7 +366,7 @@ class Store(abc.ABC):
                   after: Optional[tuple] = None) -> list[Row]:
         """Steps with from_ns <= time_ns < to_ns, newest first by (time_ns, trace_id, span_id) descending, trace
         and span IDs compared byte by byte; ``after``: only those before this (time_ns, trace_id, span_id) in that
-        order. At most ``limit``; each with the columns events.step reads."""
+        order. At most ``limit``; each with the columns events.step reads, and ``queue_url``."""
 
     @abc.abstractmethod
     def step_counts(self, from_ns: int, to_ns: int, bucket_ns: int, *, queue: Optional[str] = None,
