@@ -330,6 +330,24 @@ def test_a_dashboard_holds_at_most_50_widgets_of_at_most_5_queries():
                   ADA)[0] == 200
 
 
+def test_a_widgets_own_time_is_a_preset_or_null():
+    # QV-688: measures.preset draws an unknown ID as the past hour, so "10y" was stored and drawn as 1h
+    a = make()
+    said = 'Widget 2: "time" is a preset: 5m, 15m, 1h, 4h, 1d, 2d, 7d, 30d, or null.'
+    assert refused(a.call, "POST", "/api/dashboards",
+                   {"name": "x", "def": {"widgets": [widget(), widget("w2", time="10y")]}}, ADA) == (400, said)
+    did = a.call("POST", "/api/dashboards", {"name": "x", "def": {"widgets": [widget(time=None)]}}, ADA)[1][
+        "dashboard"]["id"]
+    for bad in ("90d", "", 7, ["7d"]):
+        assert refused(a.call, "POST", f"/api/dashboards/{did}/widgets", {"widget": widget("w2", time=bad)}, ADA) \
+            == (400, said)
+    assert refused(a.call, "PATCH", f"/api/dashboards/{did}", {"def": {"widgets": [widget(time="1y")]}}, ADA) \
+        == (400, said.replace("Widget 2", "Widget 1"))
+    assert a.call("POST", f"/api/dashboards/{did}/widgets", {"widget": widget("w2", time="7d")}, ADA)[0] == 201
+    out = a.call("GET", f"/api/dashboards/{did}/measures", {}, BEN)[1]
+    assert [w["time"]["preset"] for w in out["widgets"]] == ["1h", "7d"]
+
+
 def test_the_widgets_past_8_mb_or_5_seconds_are_skipped_and_asked_for_one_by_one(monkeypatch):
     data = _many_messages(200)
     store = MemoryDashboards()

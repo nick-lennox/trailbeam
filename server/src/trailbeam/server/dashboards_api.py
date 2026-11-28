@@ -481,7 +481,11 @@ def _check_time(v: Any) -> str | None:
 
 
 def _checked(raw: Any) -> dict:
-    """measures.check_def, then what one measures request may cost (MAX_WIDGETS, MAX_QUERIES, MAX_COLUMNS)."""
+    """measures.check_def, then what one measures request may cost (MAX_WIDGETS, MAX_QUERIES, MAX_COLUMNS), then each
+    widget's own ``time``: a preset or null. measures.preset draws an unknown ID as the past hour, so a widget saved
+    with "10y" would draw 1h while still saying "10y" (QV-688). The hosted app's checks (measures.ts problem) don't
+    look at a widget's time either, so this is here, not in measures.problem, which is held to them by the parity
+    fixtures."""
     c = M.check_def(raw)
     if "error" in c:
         raise ApiProblem(400, c["error"])
@@ -494,6 +498,9 @@ def _checked(raw: Any) -> dict:
             raise ApiProblem(400, f"Widget {i + 1}: a widget can have at most {MAX_QUERIES} queries.")
         if w.get("type") == "queue_table" and len(w.get("columns") or []) > MAX_COLUMNS:
             raise ApiProblem(400, f"Widget {i + 1}: a queue table can have at most {MAX_COLUMNS} columns.")
+        t = w.get("time")
+        if t is not None and (not isinstance(t, str) or t not in PRESET_IDS):
+            raise ApiProblem(400, f'Widget {i + 1}: "time" is a preset: {", ".join(PRESET_IDS)}, or null.')
     return d
 
 
