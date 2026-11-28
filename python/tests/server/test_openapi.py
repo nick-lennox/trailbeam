@@ -984,7 +984,8 @@ def _redrive(db):
     app = server.App(db, ui_dir=None)
     app.redrive.installed = lambda: True
     sqs = _FakeSqs()
-    app.aws.reader.clients_for = lambda region: {"sqs": sqs, "region": region or "eu-west-1"}
+    sts = types.SimpleNamespace(get_caller_identity=lambda: {"Account": "123456789012"})  # the credentials' account
+    app.aws.reader.clients_for = lambda region: {"sqs": sqs, "sts": sts, "region": region or "eu-west-1"}
     with serve(app) as base:
         assert request(base, "GET", "/api/redrive", headers=a)[0] == 200  # AWS off
         assert request(base, "POST", "/api/redrive/preview", body({"dlq": dlq}), {**j, **a})[0] == 409  # off

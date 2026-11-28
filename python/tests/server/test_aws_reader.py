@@ -1,6 +1,9 @@
 """The AWS reader (aws_reader.py, QV-589): which queues are read and why the others are not, the reads against moto's
 SQS and CloudWatch, and the short-lived cache against counting stubs (billed GetMetricData is read at most once a
-minute, a failed read is not kept, two pages that miss together make one read). No AWS account is used."""
+minute, a failed read is not kept, two pages that miss together make one read). No AWS account is used.
+
+The QV-740 tests check that only the settings decide where the server's credentials read: a queue's account, region,
+URL and name from spans (or a page's URL) can't widen them."""
 import datetime as dt
 import json
 import threading
@@ -16,7 +19,7 @@ REGION = "eu-west-1"
 ACCOUNT = "123456789012"
 T0 = 1_764_000_000_000
 MIN = 60_000
-ON = {"enabled": True, "queues": ["orders", "billing-*"], "region": None, "accountId": None}
+ON = {"enabled": True, "queues": ["orders", "billing-*"], "region": REGION, "regions": [], "accountId": None}
 
 
 def ref(name, key=None, account=ACCOUNT, region=REGION, url=True):
@@ -76,15 +79,32 @@ class Lam:
                                          "ship", "State": "Enabled", "BatchSize": 10}]}
 
 
+class Sts:
+    def __init__(self, account=ACCOUNT, fail=None):
+        self.calls, self.account, self.fail = 0, account, fail
+
+    def get_caller_identity(self):
+        self.calls += 1
+        if self.fail:
+            raise self.fail
+        return {"Account": self.account, "Arn": f"arn:aws:iam::{self.account}:role/trailbeam", "UserId": "x"}
+
+
 class Stubs:
     def __init__(self, **kw):
         self.sqs, self.cw, self.lam = Sqs(kw.get("attrs"), kw.get("fail")), Cw(kw.get("cw_fail")), \
             Lam(kw.get("lam_fail"))
+        self.sts = Sts(kw.get("account", ACCOUNT), kw.get("sts_fail"))
+        self.home = kw.get("home", "us-east-1")
         self.regions = []
 
     def __call__(self, region):
         self.regions.append(region)
-        return {"sqs": self.sqs, "cloudwatch": self.cw, "lambda": self.lam, "region": region or "us-east-1"}
+        return {"sqs": self.sqs, "cloudwatch": self.cw, "lambda": self.lam, "sts": self.sts,
+                "region": region or self.home}
+
+    def aws_calls(self):
+        return len(self.sqs.calls) + len(self.cw.calls) + len(self.lam.calls)
 
 
 def reader(settings=ON, stubs=None, installed=True):
@@ -126,7 +146,7 @@ def test_the_settings_unreadable_is_a_failed_read_not_an_error():
 
 def test_each_queue_is_read_in_its_own_region_and_the_settings_region_fills_in():
     st = Stubs()
-    s = {**ON, "region": "us-east-2", "accountId": ACCOUNT}
+    s = {**ON, "region": "us-east-2", "regions": [REGION, "us-west-2"], "accountId": ACCOUNT}
     out = reader(s, st).read([ref("orders"), ref("billing-us", region="us-west-2"),
                               ref("billing-x", account=None, region=None, url=False)], [], T0)
     assert sorted(st.regions) == ["eu-west-1", "us-east-2", "us-west-2"]
@@ -136,9 +156,29 @@ def test_each_queue_is_read_in_its_own_region_and_the_settings_region_fills_in()
     assert f"https://sqs.us-east-2.amazonaws.com/{ACCOUNT}/billing-x" in st.sqs.calls
 
 
-def test_a_queue_without_a_url_or_an_account_says_what_to_set():
-    out = reader(stubs=Stubs()).read([ref("orders", account=None, url=False)], [], T0)
-    assert out["orders"]["status"] == "failed" and out["orders"]["detail"] == aws_reader.NO_URL
+def test_without_an_account_in_the_settings_it_is_the_credentials_own():
+    st = Stubs()
+    r = reader(stubs=st)
+    out = r.read([ref("orders", account=None, url=False), ref("billing-a")], [], T0)
+    assert out["orders"]["status"] == "ok" and out["orders"]["accountId"] == ACCOUNT
+    assert st.sqs.calls == [f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/orders",
+                            f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/billing-a"]
+    r.read([ref("orders")], [], T0 + 20_000)
+    assert st.sts.calls == 1  # kept as the clients are
+    # named in the settings: never asked
+    st2 = Stubs()
+    reader({**ON, "accountId": ACCOUNT}, st2).read([ref("orders")], [], T0)
+    assert st2.sts.calls == 0 and len(st2.sqs.calls) == 1
+
+
+def test_the_credentials_account_not_found_says_what_to_set():
+    st = Stubs(sts_fail=denied("GetCallerIdentity"))
+    out = reader(stubs=st).read([ref("orders")], [window()], T0)
+    assert out["orders"]["status"] == "failed" and "sts:GetCallerIdentity failed with AccessDenied" in \
+        out["orders"]["detail"] and "Set the AWS account ID" in out["orders"]["detail"]
+    assert st.aws_calls() == 0
+    st = Stubs(sts_fail=NoCredentialsError())
+    assert reader(stubs=st).read([ref("orders")], [], T0)["orders"]["detail"] == aws_reader.NO_CREDENTIALS
 
 
 def test_no_region_anywhere_says_where_to_set_one():
@@ -146,7 +186,7 @@ def test_no_region_anywhere_says_where_to_set_one():
         from botocore.exceptions import NoRegionError
         raise NoRegionError()
 
-    out = reader(stubs=no_region).read([ref("orders", region=None)], [], T0)
+    out = reader({**ON, "region": None}, stubs=no_region).read([ref("orders", region=None)], [], T0)
     assert out["orders"]["status"] == "failed" and out["orders"]["detail"] == aws_reader.NO_REGION
 
 
@@ -160,6 +200,67 @@ def test_failures_say_what_aws_answered_and_a_partial_failure_keeps_the_rest():
     assert b["status"] == "ok" and b["settings"]["visible"] == 7 and b["triggers"] is None
     assert b["errors"] == ["lambda:ListEventSourceMappings failed with AccessDenied."]
     assert b["series"]["1h"]["queue"]["visible"] == [[T0, 3.0]]
+
+
+# ── who picks what is read (QV-740) ────────────────────────────────────────────────────────────────────────────
+
+ANY = {**ON, "queues": ["*"]}
+
+
+def test_a_key_naming_another_account_is_not_read_with_the_servers_credentials():
+    """The report's steps: queues ["*"], no account set, and a member asks for
+    999999999999/ap-south-1/billing-secrets."""
+    st = Stubs()
+    target = ref("billing-secrets", key="999999999999/ap-south-1/billing-secrets", account="999999999999",
+                 region="ap-south-1", url=False)
+    a = reader(ANY, st).read([target], [window()], T0)[target["key"]]
+    assert a["status"] == "no_account" and "ap-south-1" in a["detail"] and a["settings"] is None
+    # the region allowed: still another account than the credentials'
+    a = reader({**ANY, "regions": ["ap-south-1"]}, st).read([target], [window()], T0)[target["key"]]
+    assert a["status"] == "no_account" and a["detail"] == aws_reader.other_account("999999999999", ACCOUNT)
+    assert st.aws_calls() == 0 and a["triggers"] is None
+
+
+def test_a_url_key_without_an_account_is_read_only_in_the_settings_account():
+    """The report's step 4: accountId set, and a URL key with no account in it. Before, the URL went to SQS as typed."""
+    st = Stubs()
+    for url in ("https://sqs.eu-west-1.amazonaws.com/orders", "https://evil.example/999999999999/orders",
+                "http://169.254.169.254/latest/orders"):
+        q = {"key": url, "name": "orders", "account": None, "region": REGION, "url": url}
+        a = reader({**ON, "accountId": "111111111111"}, st).read([q], [], T0)[url]
+        assert a["status"] == "ok" and a["accountId"] == "111111111111"
+    assert set(st.sqs.calls) == {f"https://sqs.{REGION}.amazonaws.com/111111111111/orders"}
+
+
+def test_only_the_home_region_and_the_regions_listed_are_read():
+    st = Stubs(home="eu-central-1")
+    s = {**ANY, "region": None, "regions": ["us-west-2"]}
+    out = reader(s, st).read([ref("a", region=None), ref("b", region="us-west-2"), ref("c", region="eu-central-1"),
+                              ref("d", region="ap-south-1")], [], T0)
+    assert {k: v["status"] for k, v in out.items()} == {"a": "ok", "b": "ok", "c": "ok", "d": "no_account"}
+    assert out["a"]["region"] == "eu-central-1"
+    assert out["d"]["detail"] == aws_reader.other_region("ap-south-1", ["eu-central-1", "us-west-2"])
+    assert not any("ap-south-1" in u for u in st.sqs.calls) and "ap-south-1" not in st.regions
+
+
+def test_a_name_sqs_would_not_take_is_never_read():
+    st = Stubs()
+    for name in ("orders/../999999999999/x", "orders?Action=DeleteQueue", "a b", "a" * 81):
+        a = reader(ANY, st).read([ref(name, key="k", url=False)], [], T0)["k"]
+        assert a["status"] == "no_account" and a["detail"] == aws_reader.NOT_A_NAME
+    assert st.regions == [] and st.aws_calls() == 0
+    # and a pattern's * matches only what a name can hold
+    from trailbeam.server.aws_figures import name_matches
+    assert name_matches("orders-*", "orders-eu.fifo") and not name_matches("*", "a/b") and not name_matches("*", "a?b")
+
+
+def test_a_dead_letter_queue_in_another_account_is_not_read():
+    dlq = {"RedrivePolicy": json.dumps({"deadLetterTargetArn": "arn:aws:sqs:eu-west-1:999999999999:loot",
+                                        "maxReceiveCount": 3})}
+    st = Stubs(attrs={"orders": dlq})
+    a = reader(stubs=st).read([ref("orders")], [], T0, dlq_depth="sqs")["orders"]
+    assert a["status"] == "ok" and a["dlqNow"] is None
+    assert st.sqs.calls == [f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/orders"]
 
 
 # ── against moto ─────────────────────────────────────────────────────────────────────────────────────────────────

@@ -3,12 +3,27 @@ over the windows asked for, and its Lambda triggers, each queue in the shape of 
 
 This is the hosted app's ``readQueuesAws`` (trailbeam-app lib/app/queue-aws.ts), with one difference: the hosted app
 assumes a role per connected account, and self-hosted Trailbeam has one set of credentials, boto3's own (the
-environment, a profile, an instance or task role). So a queue is read when the settings name it, in its own region
-(from its URL; the settings' region when its spans don't say), and its statuses mean:
+environment, a profile, an instance or task role).
+
+**Who picks what is read (QV-740).** The credentials are the server's, but a queue's key, name, account, region and
+URL come from spans, which anyone who can send them chooses, and from a page's URL, which any member chooses. So only
+the admin's settings decide where the server reads: a queue is read only when
+
+- its name is one SQS allows (aws_settings.is_queue_name) and the settings name it (an exact name or a pattern);
+- it is in the settings' account: ``accountId``, else the credentials' own (sts:GetCallerIdentity). A queue whose
+  spans name another account is not read;
+- it is in the settings' home region (``region``, else boto3's default) or one of its other ``regions``.
+
+Its URL is then built from that account, region and name. A URL from spans is never passed to AWS, so a URL key
+without an account in it can't skip the account check. The dead-letter queue a redrive policy names is read only in
+the same account and region. The callers (queue_data.py) also read only queues the store has seen.
+
+Its statuses mean:
 
 - ``not_configured``: reads are off, or on without boto3 installed. With reads off nothing is read and no client is
   made, so the server makes no AWS call.
-- ``no_account``: reads are on, but the settings don't name this queue, or name another AWS account than its spans.
+- ``no_account``: reads are on, but the settings don't name this queue, or it is in another AWS account or region
+  than they allow, or its name is not an SQS queue's.
 - ``failed``: a read failed; the sentence says what AWS answered.
 - ``ok``: read. A read that failed while others worked (a denied lambda:ListEventSourceMappings) is in ``errors``.
 
@@ -45,12 +60,26 @@ NO_CREDENTIALS = "No AWS credentials were found. Give the server credentials the
                  "a profile, or an instance or task role."
 NO_REGION = "No AWS region is known for this queue. Set one in Settings, under AWS, or AWS_REGION in the server's " \
             "environment."
-NO_URL = "The queue's URL is not known, as its spans carry none. Set the AWS account ID in Settings, under AWS."
+NOT_A_NAME = "This is not an SQS queue name, so nothing is read for it."
+NOT_SEEN = "Trailbeam has no spans for this queue, so AWS is not read for it."
 
 
 def other_account(queue_account: str, settings_account: str) -> str:
     return (f"This queue is in AWS account {queue_account}, and the AWS settings name account {settings_account}, so "
             "it is not read.")
+
+
+def other_region(queue_region: str, allowed: list) -> str:
+    return (f"This queue is in {queue_region}, and the AWS settings allow {', '.join(allowed) or 'no region'}, so "
+            "it is not read. An admin adds the region in Settings, under AWS.")
+
+
+def no_caller_account(e: BaseException) -> str:
+    n = aws_reads.error_name(e)
+    if n in ("NoCredentialsError", "PartialCredentialsError", "CredentialRetrievalError"):
+        return NO_CREDENTIALS
+    return (f"The credentials' AWS account could not be found (sts:GetCallerIdentity failed with {n}), so nothing is "
+            "read. Set the AWS account ID in Settings, under AWS.")
 
 
 def failed_text(call: str, name: Optional[str], e: BaseException) -> str:
@@ -115,11 +144,11 @@ class Cache:
 
 # ── reading ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def queue_url(q: dict, region: str, account: Optional[str]) -> Optional[str]:
-    """The queue's URL from its spans, else built from its region and account; None when neither is known."""
-    if q.get("url"):
-        return q["url"]
-    return f"https://sqs.{region}.amazonaws.com/{account}/{q['name']}" if account else None
+def queue_url(name: str, region: str, account: str) -> str:
+    """The queue's URL, built from what the settings allow: never a URL from spans (QV-740). An SQS emulator is
+    reached through AWS_ENDPOINT_URL_SQS (aws_reads.sqs_endpoint), whatever host the URL names."""
+    domain = "amazonaws.com.cn" if region.startswith("cn-") else "amazonaws.com"
+    return f"https://sqs.{region}.{domain}/{account}/{name}"
 
 
 class AwsReader:
@@ -137,14 +166,22 @@ class AwsReader:
         """Drops every kept read and client (the settings changed)."""
         self.cache.clear()
 
+    def on(self) -> bool:
+        """Reads are on; False, never raising, when the settings can't be read."""
+        try:
+            return aws_settings.is_on(self.settings())
+        except Exception:  # noqa: BLE001
+            return False
+
     def read(self, queues: list, windows: list, now: float, *, triggers: bool = True,
              metrics: Optional[list] = None, dlq_depth: str = "cloudwatch",
              attrs_ttl_ms: Optional[float] = None) -> dict:
         """What AWS says about each queue, by its key. ``queues``: ``{key, name, account, region, url}`` (account,
-        region and url from its spans; None when not known). ``windows``: ``{id, fromMs, toMs, periodS}``. ``metrics``:
-        the CloudWatch metrics to read for the queues (af.METRIC_NAMES), all when None. ``dlq_depth``: "cloudwatch"
-        (with history), or "sqs" (the dead-letter queue's own GetQueueAttributes, falling back to CloudWatch).
-        ``attrs_ttl_ms``: how long a queue's GetQueueAttributes is kept, ATTRS_TTL_MS by default. Never raises."""
+        region and url from its spans; None when not known; the url is never sent to AWS). ``windows``: ``{id,
+        fromMs, toMs, periodS}``. ``metrics``: the CloudWatch metrics to read for the queues (af.METRIC_NAMES), all
+        when None. ``dlq_depth``: "cloudwatch" (with history), or "sqs" (the dead-letter queue's own
+        GetQueueAttributes, falling back to CloudWatch). ``attrs_ttl_ms``: how long a queue's GetQueueAttributes is
+        kept, ATTRS_TTL_MS by default. Never raises."""
         out: dict = {}
         try:
             s = self.settings()
@@ -160,7 +197,9 @@ class AwsReader:
         for q in queues:
             account = q.get("account") or s.get("accountId")
             place = {"accountId": account, "region": q.get("region") or s.get("region")}
-            if not any(af.name_matches(p, q["name"]) for p in s.get("queues") or []):
+            if not aws_settings.is_queue_name(q.get("name")):
+                out[q["key"]] = af.empty_aws("no_account", NOT_A_NAME, place)
+            elif not any(af.name_matches(p, q["name"]) for p in s.get("queues") or []):
                 out[q["key"]] = af.empty_aws("no_account", NOT_NAMED, place)
             elif q.get("account") and s.get("accountId") and q["account"] != s["accountId"]:
                 out[q["key"]] = af.empty_aws("no_account", other_account(q["account"], s["accountId"]), place)
@@ -170,17 +209,35 @@ class AwsReader:
                 by_region.setdefault(place["region"], []).append(q)
         if not by_region:
             return out
+        others = list(s.get("regions") or [])
+        if s.get("region"):
+            allowed = [s["region"], *others]
+        else:  # boto3's default region is the home region: its clients say which
+            try:
+                home = self._clients(None, now).get("region")
+            except Exception:  # noqa: BLE001 - no default region: queues without a region say so below
+                home = None
+            allowed = [home, *others] if home else others
+        for region in [r for r in by_region if r is not None and r not in allowed]:
+            for q in by_region.pop(region):
+                out[q["key"]] = af.empty_aws("no_account", other_region(region, allowed),
+                                             {"accountId": q.get("account") or s.get("accountId"), "region": region})
+        if not by_region:
+            return out
         with cf.ThreadPoolExecutor(WORKERS, thread_name_prefix="trailbeam-aws") as pool:
             for region, qs in by_region.items():
                 self._region(pool, out, s, region, qs, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms)
         return out
+
+    def _clients(self, region: Optional[str], now: float) -> dict:
+        return self.cache.get(f"clients|{region or ''}", CLIENTS_TTL_MS, now, lambda: self.clients_for(region))
 
     def _region(self, pool, out, s, region, qs, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms) -> None:
         def place(q: dict, r: Optional[str]) -> dict:
             return {"accountId": q.get("account") or s.get("accountId"), "region": r}
 
         try:
-            clients = self.cache.get(f"clients|{region or ''}", CLIENTS_TTL_MS, now, lambda: self.clients_for(region))
+            clients = self._clients(region, now)
         except Exception as e:  # noqa: BLE001
             text = NO_REGION if aws_reads.error_name(e) == "NoRegionError" else \
                 failed_text("Making the AWS clients", None, e)
@@ -194,14 +251,29 @@ class AwsReader:
             return
         base = region
 
+        # the one account queues are read in: the settings', else the credentials' own (kept as the clients are)
+        account = s.get("accountId")
+        if not account:
+            try:
+                account = self.cache.get("account", CLIENTS_TTL_MS, now,
+                                         lambda: aws_reads.caller_account(clients["sts"]))
+            except Exception as e:  # noqa: BLE001
+                for q in qs:
+                    out[q["key"]] = af.empty_aws("failed", no_caller_account(e), place(q, region))
+                return
+
+        def place(q: dict, r: Optional[str]) -> dict:  # noqa: F811 - from here on the account is known
+            return {"accountId": account, "region": r}
+
         # settings first: the dead-letter queue's name, for its depth, is in the redrive policy
         urls: dict = {}
         for q in qs:
-            u = queue_url(q, region, q.get("account") or s.get("accountId"))
-            if u is None:
-                out[q["key"]] = af.empty_aws("failed", NO_URL, place(q, region))
+            if q.get("account") and q["account"] != account:
+                out[q["key"]] = af.empty_aws("no_account", other_account(q["account"], account),
+                                             {"accountId": q["account"], "region": region})
             else:
-                urls[q["key"]] = u
+                urls[q["key"]] = queue_url(q["name"], region, account)
+        qs = [q for q in qs if q["key"] in urls]
 
         def attrs(url: str, ttl: Optional[float]) -> dict:
             # kept apart from the short-lived reads, so a page never gets counts minutes old from it
@@ -232,12 +304,11 @@ class AwsReader:
 
             def dlq(arn: str) -> None:
                 p = af.parse_queue_arn(arn)
-                if not p:
+                # SQS keeps a dead-letter queue in its source's account and region; any other is not read
+                if not p or p.get("account") != account or (p.get("region") or region) != region \
+                        or not aws_settings.is_queue_name(p["name"]):
                     return
-                acct = p.get("account") or s.get("accountId")
-                if not acct:
-                    return
-                url = f"https://sqs.{p.get('region') or region}.amazonaws.com/{acct}/{p['name']}"
+                url = queue_url(p["name"], region, account)
                 try:
                     d = attrs(url, None)
                 except Exception:  # noqa: BLE001 - the credentials may not reach the DLQ: CloudWatch has its depth

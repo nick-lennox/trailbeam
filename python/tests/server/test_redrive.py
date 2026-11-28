@@ -74,7 +74,8 @@ def test_the_gate_opens_only_with_aws_on_the_queue_named_and_an_admin():
     def g(settings=ON, dlq=DLQ, installed=True, can_manage=True):
         return redrive.gate(settings, dlq, installed=installed, can_manage=can_manage)
 
-    assert g() == {"ok": True, "account": "123456789012", "region": "eu-west-1"}
+    # the gate gives the settings' account and region: a span's are checked against them, never trusted (QV-740)
+    assert g() == {"ok": True, "account": None, "region": "eu-west-1"}
     assert g(settings={**ON, "enabled": False})["code"] == "not_configured"
     assert g(settings={**ON, "queues": []})["code"] == "not_configured"  # reads on needs a queue named
     assert g(installed=False) == {"ok": False, "code": "not_configured", "reason": redrive.NO_BOTO3}
@@ -83,14 +84,49 @@ def test_the_gate_opens_only_with_aws_on_the_queue_named_and_an_admin():
                                                  "reason": redrive.not_named("orders-dlq")}
     assert g(settings={**ON, "redrive": ["billing-dlq"]})["code"] == "dlq_not_named"
     assert g(settings={**ON, "accountId": "999999999999"})["code"] == "no_account"
-    # no account from the spans: the settings' one, or none known
+    # no account from the spans: the settings' one, or (None here) the credentials' own, which place() asks for
     assert g(dlq={"name": "orders-dlq", "account": None, "region": None},
              settings={**ON, "accountId": "999999999999"}) == {"ok": True, "account": "999999999999",
                                                                "region": "eu-west-1"}
-    assert g(dlq={"name": "orders-dlq", "account": None, "region": None})["code"] == "no_account"
+    assert g(dlq={"name": "orders-dlq", "account": None, "region": None})["ok"]
+    # a region the settings don't allow is refused before AWS is called; one of the other regions is allowed
+    assert g(dlq={**DLQ, "region": "us-east-1"}) == {"ok": False, "code": "no_account", "reason": redrive.other_region(
+        "orders-dlq", "us-east-1", ["eu-west-1"])}
+    assert g(dlq={**DLQ, "region": "us-east-1"}, settings={**ON, "regions": ["us-east-1"]})["ok"]
+    # a name SQS would not allow, even if a pattern matches it
+    assert g(dlq={**DLQ, "name": "a/b-dlq"}, settings={**ON, "redrive": ["*"]})["code"] == "dlq_not_named"
     assert g(can_manage=False) == {"ok": False, "code": "not_manager", "reason": redrive.NOT_MANAGER}
     # every reason is one sentence for the button that stays off
     assert "Settings, under AWS" in g(settings={**ON, "enabled": False})["reason"]
+
+
+def test_the_place_is_the_settings_account_or_the_credentials_and_an_allowed_region():
+    """QV-740: SQS is called only in the settings' account (else the credentials' own) and allowed regions."""
+    def p(settings=ON, dlq=DLQ, mine="123456789012", home=None):
+        return redrive.place(settings, dlq, mine, home)
+
+    assert p() == {"ok": True, "account": "123456789012", "region": "eu-west-1"}
+    # spans naming another account than the credentials' are refused, with a sentence naming both
+    assert p(mine="555555555555") == {"ok": False, "code": "no_account", "reason": redrive.other_account_of_credentials(
+        "orders-dlq", "123456789012", "555555555555")}
+    # a span without an account: the credentials' own
+    assert p(dlq={**DLQ, "account": None}, mine="555555555555")["account"] == "555555555555"
+    # the settings' account wins over the credentials'
+    assert p(settings={**ON, "accountId": "123456789012"}, mine="555555555555")["ok"]
+    assert p(settings={**ON, "accountId": "999999999999"})["code"] == "no_account"
+    # with no region in the settings, boto3's default is the home region
+    assert p(settings={**ON, "region": None}, dlq={**DLQ, "region": None}, home="ap-south-1")["region"] == "ap-south-1"
+    assert p(settings={**ON, "region": None}, home="ap-south-1")["reason"] == redrive.other_region(
+        "orders-dlq", "eu-west-1", ["ap-south-1"])
+    assert p(settings={**ON, "region": None}, dlq={**DLQ, "region": None})["code"] == "no_account"
+    assert p(mine=None, dlq={**DLQ, "account": None})["code"] == "no_account"
+
+
+def test_arns_and_urls_are_built_for_the_region_s_partition():
+    assert redrive.dlq_arn("123456789012", "eu-west-1", "q") == "arn:aws:sqs:eu-west-1:123456789012:q"
+    assert redrive.dlq_arn("123456789012", "cn-north-1", "q") == "arn:aws-cn:sqs:cn-north-1:123456789012:q"
+    assert redrive.dlq_arn("123456789012", "us-gov-west-1", "q") == "arn:aws-us-gov:sqs:us-gov-west-1:123456789012:q"
+    assert redrive.dlq_url("123456789012", "cn-north-1", "q") == "https://sqs.cn-north-1.amazonaws.com.cn/123456789012/q"
 
 
 # ── the move-task calls ──────────────────────────────────────────────────────────────────────────────────────────
@@ -248,12 +284,25 @@ class Clock:
         return self.t
 
 
-def api(sqs, admin=True, settings=ON):
+class Sts:
+    def __init__(self, account="123456789012"):
+        self.account, self.calls = account, 0
+
+    def get_caller_identity(self):
+        self.calls += 1
+        if isinstance(self.account, BaseException):
+            raise self.account
+        return {"Account": self.account}
+
+
+def api(sqs, admin=True, settings=ON, sts=None):
     clock = Clock()
     s = AwsSettings(MemorySettings())
     s.save(settings, "test", 0)
+    sts = sts or Sts()
     reader = types.SimpleNamespace(cache=types.SimpleNamespace(get=lambda key, ttl, now, make: make()),
-                                   clients_for=lambda region: {"sqs": sqs, "region": region or "eu-west-1"})
+                                   clients_for=lambda region: {"sqs": sqs, "sts": sts,
+                                                               "region": region or "eu-west-1"})
     aws = types.SimpleNamespace(settings=s, reader=reader)
     r = redrive_api.ServerRedrive(aws, redrive_log.MemoryLog(), lambda who: admin, clock, installed=lambda: True)
     return r, clock
@@ -346,8 +395,39 @@ def test_the_gate_finds_a_messages_account_and_region_from_its_spans():
     gates = r.call("POST", "/api/redrive/gates", {"dlqs": [{"name": "orders-dlq", "messageId": "m-1"},
                                                           {"name": "orders-dlq", "messageId": "m-2"}]}, WHO)[1]
     assert gates["gates"][0] == {"ok": True, "dlq": DLQ}
-    assert gates["gates"][1]["code"] == "no_account"
-    assert gates["gates"][1]["dlq"] == {"name": "orders-dlq", "account": None, "region": None}
+    # no account or region from spans: open, and a redrive goes to the credentials' account and home region
+    assert gates["gates"][1] == {"ok": True, "dlq": {"name": "orders-dlq", "account": None, "region": None}}
+
+
+def test_sqs_is_called_only_in_the_credentials_account_and_an_allowed_region():
+    """QV-740: a dead-letter queue's spans can name any account or region, and the server's credentials redrive."""
+    from trailbeam.server.alerts_api import ApiProblem
+
+    sqs = Sqs()
+    r, _ = api(sqs, sts=Sts("555555555555"))
+    with pytest.raises(ApiProblem) as e:
+        r.call("POST", "/api/redrive/start", {"dlq": DLQ}, WHO)
+    assert e.value.status == 409 and sqs.calls == []
+    assert e.value.message == redrive.other_account_of_credentials("orders-dlq", "123456789012", "555555555555")
+    with pytest.raises(ApiProblem) as e:
+        r.call("POST", "/api/redrive/preview", {"dlq": {**DLQ, "account": None, "region": "us-east-1"}}, WHO)
+    assert e.value.status == 409 and sqs.calls == [] and "us-east-1" in e.value.message
+    # no account from the spans: the credentials' own, in the ARN SQS is given
+    entry = r.call("POST", "/api/redrive/start", {"dlq": {"name": "orders-dlq", "account": None, "region": None}},
+                   WHO)[1]["entry"]
+    assert (entry["accountId"], entry["region"], entry["dlqArn"]) == (
+        "555555555555", "eu-west-1", "arn:aws:sqs:eu-west-1:555555555555:orders-dlq")
+    # credentials whose account can't be found: nothing is redriven, and the sentence says why
+    sqs = Sqs()
+    r, _ = api(sqs, sts=Sts(RuntimeError("boom")))
+    with pytest.raises(ApiProblem) as e:
+        r.call("POST", "/api/redrive/start", {"dlq": DLQ}, WHO)
+    assert sqs.calls == [] and "sts:GetCallerIdentity" in e.value.message and "redriven" in e.value.message
+    # the settings' account: STS is not asked
+    sts = Sts()
+    r, _ = api(Sqs(), settings={**ON, "accountId": "123456789012"}, sts=sts)
+    r.call("POST", "/api/redrive/start", {"dlq": DLQ}, WHO)
+    assert sts.calls == 0
 
 
 def test_cancel_records_who_asked_and_keeps_moving_until_sqs_says_so():

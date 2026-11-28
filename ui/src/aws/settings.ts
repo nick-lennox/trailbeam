@@ -2,7 +2,8 @@
   The AWS settings screen's model (QV-589): what GET and PATCH /api/settings/aws answer (contract/openapi.yaml, tag
   Settings), the form's state, and what the screen says about the reads. Pure, so the host fetches and this decides.
   AWS reads are off by default: with them off the server makes no AWS call, looks for no credentials and never loads
-  boto3. An admin turns them on by naming queues; the credentials are boto3's own and are never stored.
+  boto3. An admin turns them on by naming queues; the credentials are boto3's own and are never stored. Only these
+  settings decide where the credentials read (QV-740): the account, the home region and the other regions.
 */
 
 /** The settings as the server keeps them. */
@@ -12,7 +13,11 @@ export type AwsReadSettings = {
   queues: string[];
   /** the dead-letter queues Trailbeam may redrive (QV-590), names or patterns; empty: redrive off. Missing from servers before 0.5. */
   redrive?: string[];
+  /** the home region, for queues whose spans don't name one; null: boto3's default */
   region: string | null;
+  /** the other regions a queue may be read in */
+  regions: string[];
+  /** the one account queues are read in; null: the credentials' own */
   accountId: string | null;
   updatedAt: number | null;
   updatedBy: string | null;
@@ -35,7 +40,7 @@ export type AwsReadsStatus = {
 export type AwsSettingsAnswer = { settings: AwsReadSettings; status: AwsReadsStatus };
 
 /** The form's fields, as typed. */
-export type AwsForm = { enabled: boolean; queues: string; redrive: string; region: string; accountId: string };
+export type AwsForm = { enabled: boolean; queues: string; redrive: string; region: string; regions: string; accountId: string };
 
 /** The three read-only calls the reads make, for the role's policy. ReceiveMessage is never called. */
 export const AWS_ACTIONS = ["sqs:GetQueueAttributes", "cloudwatch:GetMetricData", "lambda:ListEventSourceMappings"] as const;
@@ -50,7 +55,7 @@ export const AWS_ABOUT =
   "It is off until an admin names the queues to read here.";
 
 export const formOf = (s: AwsReadSettings): AwsForm =>
-  ({ enabled: s.enabled, queues: s.queues.join("\n"), redrive: (s.redrive ?? []).join("\n"), region: s.region ?? "", accountId: s.accountId ?? "" });
+  ({ enabled: s.enabled, queues: s.queues.join("\n"), redrive: (s.redrive ?? []).join("\n"), region: s.region ?? "", regions: (s.regions ?? []).join(", "), accountId: s.accountId ?? "" });
 
 /** The names typed one per line (or with commas), trimmed, without empty lines or repeats. */
 export function queueList(text: string): string[] {
@@ -64,7 +69,7 @@ export function queueList(text: string): string[] {
 
 /** The PATCH body for the form: every field, so what is saved is what the form shows. */
 export const changeOf = (f: AwsForm) =>
-  ({ enabled: f.enabled, queues: queueList(f.queues), redrive: queueList(f.redrive), region: f.region.trim() || null, accountId: f.accountId.trim() || null });
+  ({ enabled: f.enabled, queues: queueList(f.queues), redrive: queueList(f.redrive), region: f.region.trim() || null, regions: queueList(f.regions), accountId: f.accountId.trim() || null });
 
 /** Whether the form differs from what is saved. */
 export const changed = (f: AwsForm, s: AwsReadSettings) => JSON.stringify(changeOf(f)) !== JSON.stringify(changeOf(formOf(s)));

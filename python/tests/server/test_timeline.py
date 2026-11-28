@@ -487,7 +487,7 @@ def _redelivered(c, mid, *between):
 
 def test_expiry_is_not_shown_after_a_rejected_delete_it_was_not_inferred_from(db, ingest):
     """The reviewer's case: visibility timeout 10 s, so the message expired at about 30.002 s; the
-    delete of delivery 1 at 32.000 s was rejected because of that. Trailbeam cannot tell the expiry and
+    delete of receive 1 at 32.000 s was rejected because of that. Trailbeam cannot tell the expiry and
     the delete apart in time (it does not know the timeout), so they are one concurrent group."""
     c = Consumer()
     ingest(*_redelivered(c, "m1", c.delete(T0 + 32 * SEC, "rh-1", ok=False, start=T0 + 32 * SEC - 2 * MS)))

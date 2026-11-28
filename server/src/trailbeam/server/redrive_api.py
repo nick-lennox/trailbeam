@@ -27,7 +27,7 @@ import re
 import threading
 from typing import Any, Callable, Optional
 
-from . import aws_reader, aws_settings, redrive, redrive_log
+from . import aws_reader, aws_reads, aws_settings, redrive, redrive_log
 from .causes import parse_queue_url
 from .alerts_api import ApiProblem, check_text
 
@@ -110,15 +110,35 @@ class ServerRedrive:
                               lambda: r.clients_for(region))
         return clients["sqs"], clients.get("region") or region
 
-    def _where(self, g: dict, name: str) -> tuple[Any, str, str, str]:
-        """(client, region, ARN, URL) for an open gate. Raises ApiProblem when no region is known."""
+    def _where(self, s: dict, dlq: dict) -> tuple[Any, str, str, str, str]:
+        """(client, account, region, ARN, URL) for a dead-letter queue whose gate is open: only in the settings'
+        account (else the credentials' own) and allowed regions, never where its spans alone say (QV-740). Raises
+        ApiProblem when it is elsewhere, or no account or region is known."""
+        r = self.aws.reader
+        now = self.now_ms()
         try:
-            sqs, region = self._sqs(g.get("region"))
+            home = s.get("region") or r.cache.get("clients|", aws_reader.CLIENTS_TTL_MS, now,
+                                                  lambda: r.clients_for(None)).get("region")
         except Exception as e:  # noqa: BLE001
             raise ApiProblem(409, aws_reader.failed_text("Making the AWS client", None, e)) from None
-        if not region:
-            raise ApiProblem(409, aws_reader.NO_REGION)
-        return sqs, region, redrive.dlq_arn(g["account"], region, name), redrive.dlq_url(g["account"], region, name)
+        mine = None
+        if not s.get("accountId"):
+            try:
+                clients = r.cache.get(f"clients|{home or ''}", aws_reader.CLIENTS_TTL_MS, now,
+                                      lambda: r.clients_for(home))
+                mine = r.cache.get("account", aws_reader.CLIENTS_TTL_MS, now,
+                                   lambda: aws_reads.caller_account(clients["sts"]))
+            except Exception as e:  # noqa: BLE001
+                raise ApiProblem(409, redrive.no_caller_account(e)) from None
+        p = redrive.place(s, dlq, mine, home)
+        if not p["ok"]:
+            raise ApiProblem(409, p["reason"])
+        try:
+            sqs, _ = self._sqs(p["region"])
+        except Exception as e:  # noqa: BLE001
+            raise ApiProblem(409, aws_reader.failed_text("Making the AWS client", None, e)) from None
+        a, region, name = p["account"], p["region"], dlq["name"]
+        return sqs, a, region, redrive.dlq_arn(a, region, name), redrive.dlq_url(a, region, name)
 
     def refresh(self, force: bool = False) -> None:
         """Reads the status of the moves still open from SQS and keeps it in the log (the hosted refreshRedrives).
@@ -208,24 +228,25 @@ class ServerRedrive:
         raise ApiProblem(404, f"no such endpoint: {method} {path}")
 
     def _open_gate(self, dlq: dict, who) -> dict:
-        g = self.gate(self._settings(), dlq, who)
+        s = self._settings()
+        g = self.gate(s, dlq, who)
         if not g["ok"]:
             raise ApiProblem(403 if g["code"] == "not_manager" else 409, g["reason"])
-        return g
+        return s
 
     def _preview(self, dlq: dict, who) -> tuple[int, dict]:
-        g = self._open_gate(dlq, who)
-        sqs, _, arn, url = self._where(g, dlq["name"])
+        s = self._open_gate(dlq, who)
+        sqs, _, _, arn, url = self._where(s, dlq)
         r = redrive.preview(sqs, arn, url)
         if not r["ok"]:
             raise ApiProblem(409, r["reason"])
         return 200, {"preview": r["preview"], "dlqArn": arn}
 
     def _start(self, dlq: dict, ids: list, who) -> tuple[int, dict]:
-        g = self._open_gate(dlq, who)
-        sqs, region, arn, _ = self._where(g, dlq["name"])
+        s = self._open_gate(dlq, who)
+        sqs, account, region, arn, _ = self._where(s, dlq)
         now = self.now_ms()
-        base = {"dlqName": dlq["name"], "dlqArn": arn, "accountId": g["account"], "region": region,
+        base = {"dlqName": dlq["name"], "dlqArn": arn, "accountId": account, "region": region,
                 "messageIds": ids, "requestedBy": _by(who), "requestedByEmail": getattr(who, "email", None),
                 "requestedAt": now}
         r = redrive.start(sqs, arn)
@@ -248,7 +269,7 @@ class ServerRedrive:
         g = self.gate(s, {"name": e["dlqName"], "account": e["accountId"], "region": e["region"]}, who)
         if not g["ok"]:
             raise ApiProblem(409, g["reason"])
-        sqs, _, _, _ = self._where({**g, "region": e["region"]}, e["dlqName"])
+        sqs, _, _, _, _ = self._where(s, {"name": e["dlqName"], "account": e["accountId"], "region": e["region"]})
         r = redrive.cancel(sqs, e["dlqArn"], e["taskHandle"])
         if not r["ok"]:
             raise ApiProblem(409, r["reason"])

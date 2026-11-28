@@ -2193,15 +2193,17 @@ paths:
         Lambda triggers), which queues, and whether the reads can work. Off by default: with reads off the
         server makes no AWS call of any kind. The credentials are boto3's own (environment variables, a
         profile, an instance or task role) and are never kept by Trailbeam; the reads need only
-        `sqs:GetQueueAttributes`, `cloudwatch:GetMetricData` and `lambda:ListEventSourceMappings`. Needs an
-        admin.
+        `sqs:GetQueueAttributes`, `cloudwatch:GetMetricData` and `lambda:ListEventSourceMappings`. Only the
+        settings decide where those credentials read: a queue is read only in `accountId` (else the
+        credentials' own account, from `sts:GetCallerIdentity`, which needs no permission), in `region` or
+        one of `regions`, and only when the store has spans for it. Needs an admin.
       responses:
         '200':
           description: The settings and what the reads can do.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/AwsSettingsView'}
-              example: {"settings": {"enabled": false, "queues": [], "redrive": [], "region": null, "accountId": null, "updatedAt": null, "updatedBy": null}, "status": {"on": false, "queues": 0, "boto3": true, "credentials": null, "region": null, "problem": null}}
+              example: {"settings": {"enabled": false, "queues": [], "redrive": [], "region": null, "regions": [], "accountId": null, "updatedAt": null, "updatedBy": null}, "status": {"on": false, "queues": 0, "boto3": true, "credentials": null, "region": null, "problem": null}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -2212,8 +2214,9 @@ paths:
       description: |
         Sets the fields given and keeps the others. `queues` is a list of names, or one text with a name per
         line; names are trimmed, and empty lines and repeats dropped. `redrive`, the dead-letter queues to
-        redrive, is given the same way. An empty `region` or `accountId` clears
-        it. Reads are on once `enabled` is true and at least one queue is named. Every AWS read kept from
+        redrive, is given the same way. `regions` likewise, one per line or with commas. An empty `region` or
+        `accountId` clears it. Reads are on once `enabled` is true and at least one queue is named. Every AWS
+        read kept from
         before the change is dropped. Needs an admin.
       requestBody:
         required: true
@@ -2229,6 +2232,8 @@ paths:
                 redrive:
                   oneOf: [{type: array, items: {type: string}}, {type: string}]
                 region: {type: [string, 'null']}
+                regions:
+                  oneOf: [{type: array, items: {type: string}}, {type: string}, {type: 'null'}]
                 accountId: {type: [string, 'null']}
             example: {"enabled": true, "queues": ["orders", "billing-*"], "region": "eu-west-1"}
       responses:
@@ -2288,8 +2293,12 @@ paths:
         button that stays off. Send `messageId`, a message in the queue, when its account and region are not
         known (a message's timeline does not carry them): its spans' queue URL gives them. `dlq` in the answer is
         the place the gate used, to send with `preview-redrive` and `start-redrive`. `code`: `not_configured` (AWS is off, or boto3 is missing), `dlq_not_named` (the
-        settings' `redrive` doesn't name it), `no_account` (its AWS account is not known, or is another than the
-        settings') or `not_manager` (only an admin can redrive). Makes no AWS call.
+        settings' `redrive` doesn't name it, or it is not an SQS queue name), `no_account` (its spans name another
+        AWS account than the settings', or a region they don't allow) or `not_manager` (only an admin can
+        redrive). Makes no AWS call. With no account ID in the settings, `preview-redrive` and `start-redrive` then
+        ask AWS for the credentials' own (`sts:GetCallerIdentity`) and refuse a queue whose spans name another: a
+        redrive goes only to the settings' account and regions, and its ARN is built from them, never taken from
+        spans.
       requestBody:
         required: true
         content:
@@ -5115,7 +5124,7 @@ components:
     AwsSettings:
       type: object
       additionalProperties: false
-      required: [enabled, queues, redrive, region, accountId, updatedAt, updatedBy]
+      required: [enabled, queues, redrive, region, regions, accountId, updatedAt, updatedBy]
       properties:
         enabled: {type: boolean, description: The switch. Off keeps the list of queues.}
         redrive:
@@ -5130,8 +5139,14 @@ components:
             The queues to read, by exact name or a pattern with `*` (such as `orders-*`). A queue none of them
             names is never read.
           items: {type: string}
-        region: {type: [string, 'null'], description: 'For a queue whose spans don''t say its region. A queue''s own region, from its URL, always wins.'}
-        accountId: {type: [string, 'null'], description: 'Optional. A queue whose spans name another account is not read; a queue whose spans carry no URL gets one built from it.'}
+        region: {type: [string, 'null'], description: 'The home region: for a queue whose spans don''t say its region. When null, boto3''s own default.'}
+        regions:
+          type: array
+          items: {type: string}
+          description: |
+            The other regions a queue may be read in. A queue whose spans name a region that is neither this
+            nor the home region is never read.
+        accountId: {type: [string, 'null'], description: 'The one AWS account queues are read in; when null, the credentials'' own (sts:GetCallerIdentity). A queue whose spans name another account is never read, and every queue''s URL is built from this account, its region and its name, never taken from its spans.'}
         updatedAt: {type: [integer, 'null'], description: 'When they were last changed, Unix milliseconds; null if never.'}
         updatedBy: {type: [string, 'null'], description: 'Who changed them last; null if never.'}
     RedrivePlace:
@@ -5235,8 +5250,9 @@ components:
       description: |
         What AWS says about one queue (@trailbeam/ui/model's `QueueAws`), read with GetQueueAttributes,
         GetMetricData and ListEventSourceMappings, never ReceiveMessage. `status`: `ok` (read), `not_configured`
-        (AWS reads are off, or on without boto3), `no_account` (the AWS settings don't name this queue, or name
-        another account) or `failed` (a read failed); `detail` says why in a sentence. Added in 0.5.
+        (AWS reads are off, or on without boto3), `no_account` (the AWS settings don't name this queue, it is in
+        an account or region they don't allow, its name is not an SQS queue's, or the store has no spans for it)
+        or `failed` (a read failed); `detail` says why in a sentence. Added in 0.5.
       additionalProperties: false
       required: [status, detail, accountId, region, readAt, settings, series, triggers, errors]
       properties:

@@ -117,7 +117,8 @@ def empty_aws(status: str, detail: Optional[str], account: Optional[dict] = None
 
 def name_matches(pattern: str, name: str) -> bool:
     """A queue name a list of names names: the exact name, or a pattern with * in it."""
-    return re.fullmatch(".*".join(re.escape(s) for s in pattern.split("*")), name, flags=re.DOTALL) is not None
+    # a * matches what a queue name can hold, never a / or a ? (QV-740)
+    return re.fullmatch("[A-Za-z0-9_.-]*".join(re.escape(s) for s in pattern.split("*")), name) is not None
 
 
 def _last(p: Optional[list]) -> Optional[list]:

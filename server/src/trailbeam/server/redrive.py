@@ -19,6 +19,12 @@ boto3 is installed, the settings' ``redrive`` list names the queue (empty by def
 is an admin (anyone, before accounts exist, as for the settings). ``gate`` says which, with the hosted app's codes
 where they mean the same thing, so one sentence explains a button that is off.
 
+**Where it redrives (QV-740).** As for reads (aws_reader.py), a dead-letter queue's account and region come from
+spans, which anyone who can send them chooses, so only the settings decide where SQS is called: the settings'
+``accountId``, else the credentials' own (``place``, after sts:GetCallerIdentity), and the home region or one of the
+other ``regions``. A queue whose spans name another account or region is refused, and its ARN and URL are built
+from those, never taken from spans.
+
 What a move's status means in words (moveWords, counted, the "redriven" notice on a message) is @trailbeam/ui's
 (ui/src/redrive/words.ts), shared by both products; only ``next_check``, which this server needs to know when to read
 a move again, is here, with the same constants.
@@ -31,7 +37,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from . import aws_figures as af, aws_reads, aws_settings
+from . import aws_figures as af, aws_reader, aws_reads, aws_settings
 
 #: what Trailbeam calls to redrive
 REDRIVE_CALLS = ("sqs:StartMessageMoveTask", "sqs:ListMessageMoveTasks", "sqs:CancelMessageMoveTask")
@@ -75,11 +81,12 @@ def counted(moved: Optional[int], to_move: Optional[int]) -> Optional[str]:
 # ── where a dead-letter queue is, and whether it may be redriven ─────────────────────────────────────────────────
 
 def dlq_arn(account: str, region: str, name: str) -> str:
-    return f"arn:aws:sqs:{region}:{account}:{name}"
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    return f"arn:{partition}:sqs:{region}:{account}:{name}"
 
 
 def dlq_url(account: str, region: str, name: str) -> str:
-    return f"https://sqs.{region}.amazonaws.com/{account}/{name}"
+    return aws_reader.queue_url(name, region, account)
 
 
 def name_of(arn: str) -> str:
@@ -97,9 +104,8 @@ def not_named(name: str) -> str:
             "under AWS.")
 
 
-def no_account(name: str) -> str:
-    return (f"The AWS account of {name} is not known, as its spans carry no queue URL. Set the AWS account ID in "
-            "Settings, under AWS.")
+def not_a_name(name: str) -> str:
+    return f"{name[:80]} is not an SQS queue name, so it is not redriven."
 
 
 def other_account(name: str, account: str, settings_account: str) -> str:
@@ -107,11 +113,52 @@ def other_account(name: str, account: str, settings_account: str) -> str:
             "redriven.")
 
 
+def other_account_of_credentials(name: str, account: str, credentials_account: str) -> str:
+    return (f"{name} is in AWS account {account}, and the server's credentials are in account {credentials_account}, "
+            "so it is not redriven. An admin sets the AWS account ID in Settings, under AWS.")
+
+
+def other_region(name: str, region: str, allowed: list) -> str:
+    return (f"{name} is in {region}, and the AWS settings allow {', '.join(allowed) or 'no region'}, so it is not "
+            "redriven. An admin adds the region in Settings, under AWS.")
+
+
+def no_caller_account(e: BaseException) -> str:
+    n = aws_reads.error_name(e)
+    if n in ("NoCredentialsError", "PartialCredentialsError", "CredentialRetrievalError"):
+        return aws_reader.NO_CREDENTIALS
+    return (f"The credentials' AWS account could not be found (sts:GetCallerIdentity failed with {n}), so nothing is "
+            "redriven. Set the AWS account ID in Settings, under AWS.")
+
+
+def place(settings: dict, dlq: dict, credentials_account: Optional[str], home_region: Optional[str]) -> dict:
+    """Where SQS is called for an open gate (QV-740): ``{"ok": True, "account", "region"}``, or ``{"ok": False,
+    "code": "no_account", "reason"}``. ``credentials_account``: sts:GetCallerIdentity's, needed when the settings
+    name no account. ``home_region``: the settings' region, else boto3's default."""
+    name = dlq.get("name") or ""
+    account = settings.get("accountId") or credentials_account
+    if not account:
+        return {"ok": False, "code": "no_account", "reason": aws_reader.NO_CREDENTIALS}
+    if dlq.get("account") and dlq["account"] != account:
+        text = other_account(name, dlq["account"], account) if settings.get("accountId") else \
+            other_account_of_credentials(name, dlq["account"], account)
+        return {"ok": False, "code": "no_account", "reason": text}
+    home = settings.get("region") or home_region
+    allowed = [r for r in [home, *(settings.get("regions") or [])] if r]
+    region = dlq.get("region") or home
+    if not region:
+        return {"ok": False, "code": "no_account", "reason": aws_reader.NO_REGION}
+    if region not in allowed:
+        return {"ok": False, "code": "no_account", "reason": other_region(name, region, allowed)}
+    return {"ok": True, "account": account, "region": region}
+
+
 def gate(settings: dict, dlq: dict, *, installed: bool, can_manage: bool) -> dict:
-    """Whether this dead-letter queue may be redriven now, and if not why, in one sentence. ``dlq``: ``{name,
-    account, region}`` (account and region from its messages' spans, None when not known). ``{"ok": True,
-    "account", "region"}`` (region None when only boto3's default is known), or ``{"ok": False, "code",
-    "reason"}``. The codes: not_configured (AWS off, or no boto3), dlq_not_named, no_account, not_manager."""
+    """Whether this dead-letter queue may be redriven now, and if not why, in one sentence, without calling AWS.
+    ``dlq``: ``{name, account, region}`` (account and region from its messages' spans, None when not known).
+    ``{"ok": True, "account", "region"}`` (the settings' account and region; None when they name none), or ``{"ok":
+    False, "code", "reason"}``. The codes: not_configured (AWS off, or no boto3), dlq_not_named, no_account,
+    not_manager. Before SQS is called, ``place`` checks the account and region against the credentials' own."""
     def no(code: str, reason: str) -> dict:
         return {"ok": False, "code": code, "reason": reason}
 
@@ -120,16 +167,19 @@ def gate(settings: dict, dlq: dict, *, installed: bool, can_manage: bool) -> dic
         return no("not_configured", OFF)
     if not installed:
         return no("not_configured", NO_BOTO3)
+    if not aws_settings.is_queue_name(name):
+        return no("dlq_not_named", not_a_name(name))
     if not any(af.name_matches(p, name) for p in settings.get("redrive") or []):
         return no("dlq_not_named", not_named(name))
     account, mine = dlq.get("account"), settings.get("accountId")
     if account and mine and account != mine:
         return no("no_account", other_account(name, account, mine))
-    if not (account or mine):
-        return no("no_account", no_account(name))
+    region, home, others = dlq.get("region"), settings.get("region"), settings.get("regions") or []
+    if region and home and region != home and region not in others:
+        return no("no_account", other_region(name, region, [home, *others]))
     if not can_manage:
         return no("not_manager", NOT_MANAGER)
-    return {"ok": True, "account": account or mine, "region": dlq.get("region") or settings.get("region")}
+    return {"ok": True, "account": mine, "region": home}
 
 
 # ── what AWS answered, in words ──────────────────────────────────────────────────────────────────────────────────
