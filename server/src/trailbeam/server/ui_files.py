@@ -18,7 +18,7 @@ Response = tuple  # (status, headers, body), as web.handle returns
 
 DEFAULT_UI_DIR = Path(__file__).resolve().parent / "ui"
 SHELL_PAGES = ("/", "/overview", "/duplicates", "/stuck", "/message", "/tenants", "/queue", "/queues", "/events", "/dashboards",
-               "/people", "/tokens", "/account", "/alerts")
+               "/people", "/tokens", "/account", "/alerts", "/settings")
 _TYPES = {".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".woff": "font/woff",
           ".html": "text/html; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
 

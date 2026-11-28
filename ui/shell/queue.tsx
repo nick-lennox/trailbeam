@@ -2,15 +2,22 @@
   The queue page at /queue?name=<queue> (QV-360 design §2, §8; the queue list is the Overview, overview.tsx), drawn with the
   shared QueuePage (@trailbeam/ui/design) in the shell's frame (frame.tsx), with ShellSearch in its top bar. Everything the page shows is in its URL: range=<preset> or from=<ms>&to=<ms>, sel=<from>-<to>
   (the selected minutes), split=version, and at=<account>:<region> when two queues share a name. They read
-  /api/queues/{queue}/series, /api/flows and /api/stuck on the same origin.
+  /api/queues/{queue}/series, /api/flows and /api/stuck on the same origin. With AWS reads on (QV-589) /series carries
+  what AWS says about the queue: the page draws its settings, CloudWatch band and Lambda triggers from it, and for a
+  queue AWS was read for, "In ‹queue› now" from /api/queues/{queue}/now under the band, as the hosted page does. A
+  queue not read says why in the server's words, with a link to the AWS settings for admins.
 */
 import { useEffect, useState } from "react";
 import {
   QUEUE_PRESETS, flowFor, fromSelfHosted, queueQuery, queueWindow, readQueueUrl, utc,
   type Flow, type FlowsResponse, type QueueHrefs, type QueuePageData, type QueuePreset, type QueueUrl, type SeriesResponse,
 } from "../src/index.ts";
-import { QueuePage, TopBar } from "../src/design/index.ts";
-import { ApiError, getHealth, getJSON } from "./chrome.tsx";
+import { QueueNowLive, QueuePage, TopBar } from "../src/design/index.ts";
+import type { QueueNowResponse } from "../src/index.ts";
+import { preset } from "../src/model/index.ts";
+import type { QueueAwsView } from "../src/queue/types.ts";
+import { ApiError, getHealth, getJSON, useMe } from "./chrome.tsx";
+import { eventsHref } from "./events.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
 
 export const queueHref = (name: string, at?: string | null) => `/queue?${queueQuery({ name, at: at ?? null })}`;
@@ -28,7 +35,7 @@ const daysText = (ms: number) => (ms % 86_400_000 === 0 ? `${ms / 86_400_000} da
 
 type Loaded =
   | { kind: "loading" }
-  | { kind: "ok"; data: QueuePageData }
+  | { kind: "ok"; data: QueuePageData; now: QueueNowResponse | null; consumer: string }
   | { kind: "unknown" }
   | { kind: "ambiguous"; flows: Flow[] }
   | { kind: "error"; message: string };
@@ -60,6 +67,8 @@ export function QueueShellPage() {
   const [split, setSplit] = useState(u0.split);
   const [state, setState] = useState<Loaded>({ kind: "loading" });
   const [keptMs, setKeptMs] = useState<number | null>(null);
+  const [awsOn, setAwsOn] = useState<boolean | undefined>(undefined);
+  const me = useMe();
   const [tick, setTick] = useState(0);
   const u: QueueUrl = { ...u0, sel, split };
 
@@ -71,11 +80,11 @@ export function QueueShellPage() {
 
   useEffect(() => {
     document.title = `${u0.name || "Queue"} · Trailbeam`;
-    getHealth(5000).then((h) => setKeptMs(retentionMs(h.config?.retention?.default)), () => {});
+    getHealth(5000).then((h) => { setKeptMs(retentionMs(h.config?.retention?.default)); setAwsOn(!!h.config?.aws?.on); }, () => setAwsOn(false));
   }, []);
 
   useEffect(() => {
-    if (!u0.name) return;
+    if (!u0.name || awsOn === undefined) return;
     let live = true;
     const now = Date.now();
     const w = queueWindow(u0.range, now);
@@ -94,9 +103,11 @@ export function QueueShellPage() {
         const ever = await getJSON<FlowsResponse>(`/api/flows?since_s=${400 * 86_400}`).catch(() => null);
         if (ever && !flowFor(ever.flows, series.queue)) return live && setState({ kind: "unknown" });
       }
+      // "In ‹queue› now" for a queue AWS was read for, as the hosted page draws it; the page still draws without it
+      const now = series.aws?.status === "ok" ? await getJSON<QueueNowResponse>(`/api/queues/${encodeURIComponent(series.queue.key)}/now`).catch(() => null) : null;
       if (!live) return;
-      const data = fromSelfHosted({ series, flow, stuck: stuck && { count: stuck.messages.length, more: !!stuck.next_cursor }, endsNow: w.endsNow });
-      setState({ kind: "ok", data });
+      const data = fromSelfHosted({ series, flow, stuck: stuck && { count: stuck.messages.length, more: !!stuck.next_cursor }, endsNow: w.endsNow, awsOn });
+      setState({ kind: "ok", data, now, consumer: flow?.consumers.length === 1 ? flow.consumers[0].name : "" });
     }).catch(async (e: Error) => {
       if (e instanceof ApiError && e.status === 400 && /more than one queue/.test(e.message)) {
         const ever = await getJSON<FlowsResponse>(`/api/flows?since_s=${400 * 86_400}`).catch(() => null);
@@ -105,7 +116,7 @@ export function QueueShellPage() {
       if (live) setState({ kind: "error", message: e.message });
     });
     return () => { live = false; };
-  }, [tick, keptMs]);
+  }, [tick, keptMs, awsOn]);
 
   // the span charts ask again every 30 s while the range ends now (§4.4), and the tab is showing
   useEffect(() => {
@@ -159,6 +170,11 @@ export function QueueShellPage() {
   const clipped = keptMs !== null && u0.range.kind === "fixed" && u0.range.fromMs < now - keptMs;
   const rangeNote = keptMs === null ? null : clipped ? `Spans before ${utc(now - keptMs, { date: true })} UTC aren't kept on this server.` : `Kept for ${daysText(keptMs)} on this server`;
   const json = `/api/queues/${encodeURIComponent(u0.name)}/series`;
+  // as the server decides (aws_api.for_app): anyone before accounts exist, else an admin
+  const admin = !!me && (me.auth !== "accounts" || me.user?.role === "admin");
+  // the server's sentence on why it didn't read the queue, and where an admin changes that
+  const awsWhy = (a: QueueAwsView) => <>{a.detail ?? "AWS wasn't read for this queue."}{admin && a.status !== "failed" && <> <a className="text-brand hover:underline" href="/settings">Open the AWS settings</a></>}</>;
+  const inNow = state.kind === "ok" && state.now?.live?.status === "ok" ? state.now : null;
   return (
     <ShellFrame path="/queue">
       <QueuePage
@@ -175,6 +191,14 @@ export function QueueShellPage() {
         split={split}
         onSplit={(on) => { setSplit(on); write({ split: on }); }}
         search={<ShellSearch />}
+        awsWhy={awsWhy}
+        afterCloudWatch={inNow && state.kind === "ok" && (
+          <div className="scroll-mt-16" id="in-queue-now">
+            <QueueNowLive queue={u0.name} view={inNow} live={inNow.live ?? null} heldTotal={inNow.held.length} consumer={state.consumer}
+              fifo={inNow.live?.fifo ?? u0.name.endsWith(".fifo")} triggers={inNow.aws?.triggers ?? null}
+              hrefs={{ message: (id) => `/message?id=${encodeURIComponent(id)}`, events: (q) => eventsHref(q, preset("1h", Date.now())) }} />
+          </div>
+        )}
         footer={<>Times are in UTC. The same data as JSON: <a className="font-mono text-caption text-brand hover:underline" href={json}>{json}</a></>}
       />
     </ShellFrame>

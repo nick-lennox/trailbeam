@@ -2014,7 +2014,8 @@ What each has today:
 | JSON API | yes | |
 | Event explorer: every event in a range, inferred ones included (an expired visibility timeout, a move to the dead-letter queue), with filters, `body.*` search and CSV and PDF export | yes | yes |
 | Overview of flows between services and queues, dashboards | not yet | yes |
-| Queue settings, depth and Lambda triggers read from AWS, and redrive | | yes, with a read-only role you connect (redrive needs a second, separate role) |
+| Queue settings, depth and Lambda triggers read from AWS | yes, off by default: an admin names the queues in Settings, and the server reads with its own AWS credentials | yes, with a read-only role you connect |
+| Redrive | | yes, with a second, separate role |
 | Retention: global, per queue, or forever | yes | yes |
 | Accounts, sign-in and invitations | | yes |
 | Roles (owner, admin, member) | | yes |
@@ -2025,8 +2026,9 @@ What each has today:
 | Billing | | planned |
 | Backups | | planned |
 
-Open-source Trailbeam makes no AWS calls, so it reads nothing from AWS and cannot redrive. "Planned"
-means the hosted app does not have it yet.
+Open-source Trailbeam makes no AWS calls until an admin turns AWS reads on, and then only the three read-only
+calls `sqs:GetQueueAttributes`, `cloudwatch:GetMetricData` and `lambda:ListEventSourceMappings`. It cannot
+redrive. "Planned" means the hosted app does not have it yet.
 
 Both draw the same views from the same rules. The hosted app installs this repository's
 `@trailbeam/ui` as a normal dependency, and both are tested against the same recorded contract 3.2

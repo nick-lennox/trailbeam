@@ -9,7 +9,9 @@ export type Health = {
   version?: string;
   ingest?: { requests?: number; inserted?: number; ignored?: number; rejected?: number };
   data?: { last_row?: number | null };
-  config?: { auth?: "token" | "off" | "accounts"; ingest_auth?: "token" | "open"; store_bodies?: string[]; retention?: { default?: string; passes?: number; last_pass?: { deleted_spans?: number } | null } | null };
+  config?: { auth?: "token" | "off" | "accounts"; ingest_auth?: "token" | "open"; store_bodies?: string[]; retention?: { default?: string; passes?: number; last_pass?: { deleted_spans?: number } | null } | null;
+    /** the AWS reads (QV-589): on, how many queues are named, and a sentence when they are on but can't work */
+    aws?: { on?: boolean; queues?: number; boto3?: boolean | null; credentials?: string | null; region?: string | null; problem?: string | null } };
 };
 
 /** The newest message, for "First message received". */
