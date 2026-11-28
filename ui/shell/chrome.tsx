@@ -1,6 +1,6 @@
 /* What every shell page shares: who is signed in, and reading Trailbeam's API on the same origin. The page frame is frame.tsx. */
 import { useEffect, useState } from "react";
-import type { Health, SignInIdentity } from "../src/index.ts";
+import { tenantsTime, type Health, type SignInIdentity } from "../src/index.ts";
 
 /** A tenant's messages: the Messages list, filtered (contract/tenants.md, "Tenant filter"). */
 export const tenantHref = (t: string) => `/?tenant=${encodeURIComponent(t)}`;
@@ -8,8 +8,8 @@ export const messageHref = (id: string) => `/message?id=${encodeURIComponent(id)
 
 /** Tenant names that start with `text`, from the Tenants page's range when it is the page shown, else the server's default (a day). */
 export function suggestTenants(text: string, signal?: AbortSignal, search = location.search, path = location.pathname): Promise<string[]> {
-  const since = path === "/tenants" ? new URLSearchParams(search).get("since_s") : null;
-  const range = since ? `&since_s=${encodeURIComponent(since)}` : "";
+  const t = path === "/tenants" ? tenantsTime((k) => new URLSearchParams(search).get(k), Date.now()) : null;
+  const range = t ? `&from_ms=${Math.floor(t.from)}&to_ms=${Math.ceil(t.to) - 1}` : "";
   return fetch(`/api/tenants/search?q=${encodeURIComponent(text)}${range}`, { signal, headers: { Accept: "application/json" } })
     .then((r) => (r.ok ? r.json() : { tenants: [] })).then((d: { tenants?: string[] }) => d.tenants ?? []);
 }

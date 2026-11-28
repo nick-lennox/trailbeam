@@ -11,6 +11,7 @@ export type { MessageHrefs, MessageTab } from "./message/types.ts";
 export { errorCauses, type ErrorCause } from "./errors.ts";
 export type * from "./timeline/types.ts";
 export { TenantSearch, TENANTS_TITLE, TENANTS_SUBTITLE, p95Note, tenantsFootnote, noTenantsText, P95_NOTE, fmtWait, fmtShare, TENANT_ENV, TENANT_IS, TENANTS_README } from "./tenants/Tenants.tsx";
+export { DEFAULT_TENANTS_RANGE, tenantsTime, tenantsUpgrade, tenantsHref } from "./tenants/range.ts";
 export type * from "./tenants/types.ts";
 export {
   LAST_ADMIN, ROLES, ROLE_TEXT, STATUS_HINT, STATUS_TEXT, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind,

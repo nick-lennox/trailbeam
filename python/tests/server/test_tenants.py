@@ -197,16 +197,22 @@ def test_tenants_page_without_the_shell(fixture_db, server):
     assert "m-fifo-1" in body.decode() and "m-orders-1" not in body.decode()
 
 
-@pytest.mark.parametrize("sent,label,since,line", [
-    (10, "Last 24 hours", "86400", "10 messages were sent in the last 24 hours, none with one."),
-    (1, "Last hour", "3600", "1 message was sent in the last hour, none with one."),
-    (0, "Last 7 days", "604800", "No messages were sent in the last 7 days."),
+@pytest.mark.parametrize("sent,query,since,line", [
+    (10, {"range": "1d"}, "86400", "10 messages were sent in the past 1 day, none with one."),
+    (1, {"range": "1h"}, "3600", "1 message was sent in the past 1 hour, none with one."),
+    (0, {"range": "7d"}, "604800", "No messages were sent in the past 7 days."),
+    # QV-711: the time picker's ids, a day by default, and the links from before still open what they named
+    (0, {}, "86400", "No messages were sent in the past 1 day."),
+    (0, {"since_s": "604800"}, "604800", "No messages were sent in the past 7 days."),
+    (0, {"range": "24h"}, "86400", "No messages were sent in the past 1 day."),
 ])
-def test_tenants_page_with_no_tenant_says_what_one_is(sent, label, since, line):
+def test_tenants_page_with_no_tenant_says_what_one_is(sent, query, since, line):
     """QV-217: the empty Tenants page says what a tenant is and how to set one, in plain words, not the span contract."""
     from trailbeam.server import web
     d = {"rows": [], "total_sent": sent, "untagged_sent": sent, "capped": False}
-    _, _, body = web.handle(lambda name, q: d, ApiError, "/tenants", {"since_s": since})
+    asked = []
+    _, _, body = web.handle(lambda name, q: asked.append(q) or d, ApiError, "/tenants", query)
+    assert asked == [{"since_s": since}]
     html = body.decode()
     assert "<strong>No tenants yet</strong>" in html
     assert ("A tenant is your own customer or account ID, read from each message. " + line

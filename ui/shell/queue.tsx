@@ -10,11 +10,12 @@
 import { useEffect, useState } from "react";
 import {
   QUEUE_PRESETS, flowFor, fromSelfHosted, queueQuery, queueWindow, readQueueUrl, utc,
-  type Flow, type FlowsResponse, type QueueHrefs, type QueuePageData, type QueuePreset, type QueueUrl, type SeriesResponse,
+  type Flow, type FlowsResponse, type QueueHrefs, type QueuePageData, type QueueRange, type QueueUrl, type SeriesResponse,
 } from "../src/index.ts";
 import { QueueNowLive, QueuePage, TopBar } from "../src/design/index.ts";
 import type { QueueNowResponse } from "../src/index.ts";
-import { preset } from "../src/model/index.ts";
+import { TimePicker } from "../src/explorer/index.ts";
+import { custom, preset, type TimeRange } from "../src/model/index.ts";
 import type { QueueAwsView } from "../src/queue/types.ts";
 import { ApiError, getHealth, getJSON, useMe } from "./chrome.tsx";
 import { eventsHref } from "./events.tsx";
@@ -40,24 +41,18 @@ type Loaded =
   | { kind: "ambiguous"; flows: Flow[] }
   | { kind: "error"; message: string };
 
-function Picker({ u, keptMs }: { u: QueueUrl; keptMs: number | null }) {
-  const value = u.range.kind === "preset" ? u.range.preset : "fixed";
-  const go = (v: string) => {
-    if (v === "fixed") return;
-    location.assign(`/queue?${queueQuery({ name: u.name, at: u.at, split: u.split, range: { kind: "preset", preset: v as QueuePreset } })}`);
-  };
-  return (
-    <label className="inline-flex items-center gap-2 text-sm text-ink-2">
-      <span className="sr-only">Time range</span>
-      <select value={value} onChange={(e) => go(e.target.value)}
-        className="h-8 rounded-control border border-line bg-surface px-2.5 text-sm text-ink shadow-card hover:border-line-strong">
-        {QUEUE_PRESETS.map(([k, label, ms]) => (
-          <option key={k} value={k} disabled={keptMs !== null && ms > keptMs}>{label}{keptMs !== null && ms > keptMs ? " (not kept)" : ""}</option>
-        ))}
-        {u.range.kind === "fixed" && <option value="fixed">{utc(u.range.fromMs, { date: true })} to {utc(u.range.toMs, { date: true })} UTC</option>}
-      </select>
-    </label>
-  );
+/** The page's range as the time picker's: a preset ends now, a fixed range is from and to. */
+export const queueTime = (r: QueueRange, now: number): TimeRange => (r.kind === "preset" ? preset(r.preset, now) : custom(r.fromMs, r.toMs));
+/** The time picker's range as the page's URL has it: one of its presets, else a fixed from and to (a typed 45m too). */
+export const queueRangeOfTime = (t: TimeRange): QueueRange => {
+  const p = QUEUE_PRESETS.find(([k]) => k === t.preset);
+  return p ? { kind: "preset", preset: p[0] } : { kind: "fixed", fromMs: Math.floor(t.from), toMs: Math.ceil(t.to) };
+};
+
+/** The page's one range control: the time picker every page with a range has (QV-711). A new range loads the page again. */
+function Picker({ u }: { u: QueueUrl }) {
+  const go = (t: TimeRange) => location.assign(`/queue?${queueQuery({ name: u.name, at: u.at, split: u.split, range: queueRangeOfTime(t) })}`);
+  return <TimePicker time={queueTime(u.range, Date.now())} setTime={go} now={Date.now()} />;
 }
 
 export function QueueShellPage() {
@@ -167,7 +162,8 @@ export function QueueShellPage() {
     range: (preset) => `/queue?${queueQuery({ name: u.name, at: u.at, split: u.split, range: { kind: "preset", preset } })}`,
   };
   const now = Date.now();
-  const clipped = keptMs !== null && u0.range.kind === "fixed" && u0.range.fromMs < now - keptMs;
+  // a range reaching back past what the server keeps (a preset too) is read from the oldest span kept
+  const clipped = keptMs !== null && queueWindow(u0.range, now).fromMs < now - keptMs;
   const rangeNote = keptMs === null ? null : clipped ? `Spans before ${utc(now - keptMs, { date: true })} UTC aren't kept on this server.` : `Kept for ${daysText(keptMs)} on this server`;
   const json = `/api/queues/${encodeURIComponent(u0.name)}/series`;
   // as the server decides (aws_api.for_app): anyone before accounts exist, else an admin
@@ -184,7 +180,7 @@ export function QueueShellPage() {
         onRetry={() => { setState({ kind: "loading" }); setTick((t) => t + 1); }}
         unknown={state.kind === "unknown"}
         href={href}
-        picker={<Picker u={u} keptMs={keptMs} />}
+        picker={<Picker u={u} />}
         rangeNote={rangeNote}
         sel={sel}
         onSelect={(s) => { setSel(s); write({ sel: s }); }}

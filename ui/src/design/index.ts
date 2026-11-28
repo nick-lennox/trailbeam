@@ -24,8 +24,8 @@ export { Since, sinceText } from "./Since.tsx";
 export { MiddleTruncate } from "./MiddleTruncate.tsx";
 export { MessageSearch, tenantText, type MessageSearchProps } from "./MessageSearch.tsx";
 export {
-  TenantRanges, TenantsCard, TenantsFoot, TenantsPage, TenantsTable,
-  type TenantRange, type TenantsPageProps, type TenantsTableProps,
+  TenantsCard, TenantsFoot, TenantsPage, TenantsTable,
+  type TenantsPageProps, type TenantsTableProps,
 } from "../tenants/TenantsPage.tsx";
 export { QueuePage, type QueuePageProps } from "../queue/QueuePage.tsx";
 export {

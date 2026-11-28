@@ -42,9 +42,10 @@ export const TENANT_ENV = "export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a m
   + "export TRAILBEAM_TENANT_BODY_PATH=customer.id   # or a path in a JSON body";
 export const TENANT_IS = "A tenant is your own customer or account ID, read from each message.";
 
-/** The empty state's text before the code window. `range` is a range label such as "Last 24 hours". */
+/** The empty state's text before the code window. `range` is the time picker's label: "Past 1 day", or a fixed range's
+    "Nov 27, 09:00 to 10:00". */
 export function noTenantsText(totalSent: number, range: string): string {
-  const when = `in the ${range.replace(/^Last /, "last ")}`;
+  const when = /^(Past|Last) /.test(range) ? `in the ${range[0].toLowerCase()}${range.slice(1)}` : `from ${range}`;
   const seen = totalSent === 0 ? `No messages were sent ${when}.`
     : `${fmtNum(totalSent)} ${totalSent === 1 ? "message was" : "messages were"} sent ${when}, none with one.`;
   return `${TENANT_IS} ${seen} To split traffic by customer, set one of these in every service that sends or receives:`;
