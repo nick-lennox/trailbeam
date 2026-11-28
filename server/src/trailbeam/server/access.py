@@ -226,7 +226,12 @@ SHARED_UI_GONE = ("this server has user accounts now: TRAILBEAM_TOKEN works only
 NEEDS_PERSON = "sign in, or send a personal API token (Authorization: Bearer tbp_...)"
 NEEDS_SHARED = "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"
 NEEDS_ADMIN = "this needs an admin"
-NO_ADMIN_YET = "this needs an admin, and this server has none yet: create one with trailbeam users create"
+NO_ADMIN_YET = ("this needs an admin, and this server has none yet: create one with trailbeam users create --accounts "
+                "--email <email> --role admin")
+# with users and roles off (the default), an admin made with users create is ignored, so say how to turn them on
+ACCOUNTS_OFF = ("this needs an admin, and personal accounts are off on this server (a preview, off by default): to "
+                "use them, start the server with TRAILBEAM_ACCOUNTS=1, then create the first admin with trailbeam "
+                "users create --accounts --email <email> --role admin")
 NEEDS_INGEST_KEY = ("this server needs an ingest token: x-trailbeam-key: <token> or Authorization: Bearer <token> "
                     "(an ingest token, tbi_..., or TRAILBEAM_TOKEN)")
 
@@ -315,7 +320,7 @@ class Access:
             return Decision(False, status=401, message=NEEDS_INGEST_KEY)
         if not self.state.admin_exists():
             if level == ADMIN:
-                return Decision(False, status=403, message=NO_ADMIN_YET)
+                return Decision(False, status=403, message=NO_ADMIN_YET if self.accounts is not None else ACCOUNTS_OFF)
             if self.shared is None:
                 return Decision(True)
             if self._is_shared(cred):

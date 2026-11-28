@@ -11,6 +11,21 @@ export const PASSKEYS_ABOUT = "Sign in with Face ID, Touch ID, Windows Hello or 
 export const PASSKEY_NOT_SAVED = "The passkey wasn't saved. Your browser may have canceled it.";
 export const WAY_OFF = "This Trailbeam doesn't offer this way in now, so it can't sign you in.";
 
+/** Self-hosted, signed in without a person (QV-767): the shared TRAILBEAM_TOKEN, or a server that needs no sign-in.
+    `signedIn` is said on the card in place of the person; `accounts`, under it, how a person gets an account here:
+    with users and roles off (`/api/me` features.accounts false, the default) that takes TRAILBEAM_ACCOUNTS=1 first,
+    since `trailbeam users create` refuses without --accounts and the server ignores an admin made with it. */
+export function withoutPerson(f: { via: string; accounts: boolean }): { signedIn: string; accounts: string } {
+  const signedIn = f.via === "shared_token" || f.via === "shared_cookie"
+    ? "Signed in with this server's shared access token (TRAILBEAM_TOKEN), not as a person."
+    : f.via === "none" ? "This server needs no sign-in, so this browser isn't signed in as anyone." : "Not signed in as a person.";
+  const create = "trailbeam users create --accounts --email <email> --role admin";
+  const accounts = f.accounts
+    ? `Personal accounts are on, but this server has no admin yet. An operator creates the first one with ${create}.`
+    : `Personal accounts are a preview, off on this server. To turn them on, an operator starts the server with TRAILBEAM_ACCOUNTS=1, then creates the first admin with ${create}.`;
+  return { signedIn, accounts };
+}
+
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
 
 /** A passkey's default name: the browser and the system it was made on ("Chrome on Mac"). */
