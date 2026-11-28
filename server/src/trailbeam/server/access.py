@@ -27,7 +27,8 @@ seconds and none needs a restart.
 
 - **No admin yet** (as in 0.3.0): with ``TRAILBEAM_TOKEN`` set, every level but ``OPEN`` needs it (as
   ``Authorization: Bearer`` or ``x-trailbeam-key``, or the login page's ``trailbeam_session`` cookie); without it,
-  everything is served. ``ADMIN`` is refused either way: there is nobody to be one.
+  everything is served. ``ADMIN`` is refused either way (403): there is nobody to be one. With the token set, it is
+  checked first, so a caller without it gets 401 and is not told why ADMIN would be refused.
 - **An admin exists:** ``MEMBER`` needs a person: a personal API token (``tbp_…``), the email a proxy in front
   of Trailbeam signed in (``--proxy-auth-header``, proxy_auth.py), or a session (``trailbeam_sid``, sessions.py),
   looked for in that order, of an admin or a member; ``ADMIN`` needs an admin. ``TRAILBEAM_TOKEN`` keeps working for
@@ -319,15 +320,19 @@ class Access:
                 return Decision(True, Who("ingest_token"))
             return Decision(False, status=401, message=NEEDS_INGEST_KEY)
         if not self.state.admin_exists():
+            # with TRAILBEAM_TOKEN set, the token comes first, ADMIN too: a caller without it is told only that
+            # (401), not how the server is set up (QV-790)
+            who = NOBODY
+            if self.shared is not None:
+                if self._is_shared(cred):
+                    who = Who("shared_token")
+                elif self.shared.session_ok(headers.get("Cookie")):
+                    who = Who("shared_cookie")
+                else:
+                    return Decision(False, status=401, message=NEEDS_SHARED)
             if level == ADMIN:
-                return Decision(False, status=403, message=NO_ADMIN_YET if self.accounts is not None else ACCOUNTS_OFF)
-            if self.shared is None:
-                return Decision(True)
-            if self._is_shared(cred):
-                return Decision(True, Who("shared_token"))
-            if self.shared.session_ok(headers.get("Cookie")):
-                return Decision(True, Who("shared_cookie"))
-            return Decision(False, status=401, message=NEEDS_SHARED)
+                return Decision(False, who, 403, NO_ADMIN_YET if self.accounts is not None else ACCOUNTS_OFF)
+            return Decision(True, who)
         # an admin exists: people, and the shared token for /metrics only
         if level == METRICS and self._is_shared(cred):
             return Decision(True, Who("shared_token"))
