@@ -1,12 +1,17 @@
 """The sign-in pages in the pre-dawn sky (QV-666): the design system's logo and tokens, one self-contained response,
 the screen rules, and everything the old pages had."""
 import re
+import threading
+import urllib.error
+import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
 
-from trailbeam.server import logo, sky, web
+from trailbeam.server import auth, logo, sky, web
+from trailbeam.server.db import Database
+from trailbeam.server.server import make_server
 
 UI = Path(__file__).resolve().parents[3] / "ui" / "src"
 
@@ -95,11 +100,11 @@ def test_the_sign_in_page_keeps_what_it_had():
     assert 'id="passkey" data-next="/stuck"' in html and 'id="passkey-note"' in html and "<script>" in html
     # the passkey button's wrapper is hidden until the script finds WebAuthn
     assert re.search(r'<p hidden><button type="button" class="quiet" id="passkey"', html)
-    assert "Or sign in with your Trailbeam email and password." in html
+    assert "or with your email" in html
     assert 'name="email" value="a@example.com"' in html and 'name="password"' in html
     assert '<input type="hidden" name="next" value="/stuck">' in html and 'action="/login"' in html
     plain = PAGES["sign in, no extras"]()[2].decode()
-    assert "Sign in with your Trailbeam account." in plain and "passkey" not in plain
+    assert "passkey" not in plain and "or with your email" not in plain
     only = PAGES["sign in, buttons only"]()[2].decode()
     assert "Sign in with GitHub" in only and "<form" not in only
 
@@ -128,3 +133,74 @@ def test_the_token_and_error_pages_keep_what_they_had():
     assert "You cancelled the sign-in." in html and 'href="/login"' in html
     html = PAGES["forbidden"]()[2].decode()
     assert "Only an admin can see this page." in html and 'href="/logout"' in html and 'href="/"' in html
+
+
+def test_sign_in_has_the_hosted_title_and_order():
+    """QV-775: hosted's "Welcome back." and its lead, the buttons, "or with your email", the form, and what went wrong
+    above the button."""
+    html = PAGES["sign in"]()[2].decode()
+    assert "<h1>Welcome back.</h1>" in html and '<p class="lead">Sign in to see your queues.</p>' in html
+    order = [html.index(s) for s in ("Welcome back.", "Sign in with Okta", "or with your email", 'name="email"',
+                                     'name="password"', "Too many failed sign-ins", '<button class="btn">Sign in')]
+    assert order == sorted(order)
+    plain = PAGES["sign in, no extras"]()[2].decode()
+    assert "Sign in to see your queues." in plain and 'class="auth-form spaced"' in plain
+    assert "<h1>Welcome back.</h1>" in PAGES["sign in, buttons only"]()[2].decode()
+    token = PAGES["token"]()[2].decode()
+    assert "<h1>Welcome back.</h1>" in token and token.index('name="token"') < token.index("That is not the token.")
+
+
+@pytest.fixture
+def built(tmp_path):
+    """A shell build with the font rules vite writes from ui/shell/fonts.css."""
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text('<!doctype html><div id="root"></div>')
+    (tmp_path / "assets" / "index-a1.css").write_text(
+        "@font-face{font-family:Newsreader;font-style:normal;font-display:swap;font-weight:400;"
+        'src:url(/ui/assets/newsreader-latin-400-normal-X1.woff2)format("woff2")}'
+        "body{margin:0}@font-face{font-family:Instrument Sans;font-weight:500;"
+        'src:url(/ui/assets/instrument-sans-latin-500-normal-Y2.woff2)format("woff2")}')
+    (tmp_path / "assets" / "newsreader-latin-400-normal-X1.woff2").write_bytes(b"wOF2")
+    (tmp_path / "assets" / "app-1.js").write_text("secret()")
+    return tmp_path
+
+
+def _get(url):
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:
+            return r.status, dict(r.headers), r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, dict(e.headers), e.read()
+
+
+def test_the_pages_load_the_shells_fonts(built):
+    """QV-775: the sign-in pages name the shell's own font files, which load before sign-in; nothing else does."""
+    faces = sky.font_faces(built)
+    assert faces.count("@font-face") == 2 and "newsreader-latin-400-normal-X1.woff2" in faces and "body" not in faces
+    assert sky.font_faces(None) == "" and sky.font_faces(built / "missing") == ""
+    r = sky.with_fonts(PAGES["setup"](), built)
+    html = r[2].decode()
+    assert re.search(r"<style>[^<]*@font-face\{font-family:Newsreader[^<]*</style>", html)
+    assert r[1]["Referrer-Policy"] == "no-referrer"  # the page's own headers stay
+    assert sky.with_fonts(PAGES["setup"](), None) == PAGES["setup"]()
+    other = (200, {}, b"<style>p{}</style>")
+    assert sky.with_fonts(other, built) == other  # not a sky page
+
+    db = Database()
+    httpd = make_server(db, "127.0.0.1", 0, ui_dir=built, auth=auth.Auth("s3cret-token-for-tests"))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        status, _, body = _get(base + "/login")
+        assert status == 200 and b"newsreader-latin-400-normal-X1.woff2" in body
+        status, _, body = _get(base + "/stuck")  # signed out: the sign-in page, with the fonts
+        assert status == 401 and b"Welcome back." in body and b"@font-face" in body
+        status, headers, body = _get(base + "/ui/assets/newsreader-latin-400-normal-X1.woff2")
+        assert (status, headers["Content-Type"], body) == (200, "font/woff2", b"wOF2")
+        assert _get(base + "/ui/assets/app-1.js")[0] == 401  # the rest of the shell stays behind sign-in
+        assert _get(base + "/ui/assets/missing.woff2")[0] == 404
+        assert _get(base + "/ui/assets/%2e%2e/index.woff2")[0] == 401  # only a file directly under assets/ is open
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        db.close()

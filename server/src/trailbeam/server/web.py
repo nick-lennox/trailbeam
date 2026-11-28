@@ -906,13 +906,13 @@ def _hidden(name: str, value: str) -> str:
 
 def login_page(next_path: str, error: bool = False, status: int = 401, sso=None) -> Response:
     """The page a browser gets without the session cookie when the server has a token and no admin (auth.py)."""
-    body = ("<h1>Sign in</h1>"
+    body = ("<h1>Welcome back.</h1>"
             + '<p class="lead">This Trailbeam server needs its access token (<code>TRAILBEAM_TOKEN</code>).</p>'
-            + (sky.notice("That is not the token.") if error else "")
             + _ways(next_path, sso, False) + ('<p class="divider">or with the token</p>' if sso else "")
             + f'<form class="auth-form{"" if sso else " spaced"}" method="post" action="/login">'
             + sky.field("Access token", '<input type="password" id="f-token" name="token" class="mono" '
                         'autocomplete="current-password" required autofocus>')
+            + (sky.notice("That is not the token.") if error else "")
             + _hidden("next", next_path) + '<div class="actions"><button class="btn">Sign in</button></div></form>')
     return sky.page(status, "Sign in", body)
 
@@ -969,18 +969,21 @@ def sign_in_page(next_path: str, email: str = "", outcome: Optional[str] = None,
     """The page a browser gets without a session once the server has an admin (access.py): email and password, and
     the single sign-on and GitHub buttons when they are on (``sso``, as _sso_button). ``password=False``: those buttons
     only (no admin yet). ``passkey``: passkeys are on (passkeys.py), so it has Sign in with a passkey too."""
+    # The hosted sign-in's title, lead and order (QV-775): the buttons, "or with your email", then the form, with
+    # what went wrong above its button. Hosted's Google button, "Forgot it?" and sign-up link have no match here.
     notice = SIGN_IN_NOTICES.get(outcome or "")
-    head = ("<h1>Sign in</h1>" + (sky.notice(notice.format(minutes=_minutes(retry_after_s))) if notice else "")
-            + _ways(next_path, sso, passkey and password))
+    notice_html = sky.notice(notice.format(minutes=_minutes(retry_after_s))) if notice else ""
+    ways = _ways(next_path, sso, passkey and password)
+    head = '<h1>Welcome back.</h1><p class="lead">Sign in to see your queues.</p>' + ways
     if not password:
-        return sky.page(status, "Sign in", head)
-    body = (head + ('<p class="divider">Or sign in with your Trailbeam email and password.</p>' if sso or passkey
-                    else '<p class="lead">Sign in with your Trailbeam account.</p>')
-            + f'<form class="auth-form{"" if sso or passkey else " spaced"}" method="post" action="/login">'
+        return sky.page(status, "Sign in", head + notice_html)
+    body = (head + ('<p class="divider">or with your email</p>' if ways else "")
+            + f'<form class="auth-form{"" if ways else " spaced"}" method="post" action="/login">'
             + sky.field("Email", f'<input type="email" id="f-email" name="email" value="{escape(email)}" '
                         'placeholder="you@example.com" autocomplete="username" required autofocus>')
             + sky.field("Password", '<input type="password" id="f-password" name="password" '
                         'autocomplete="current-password" required>')
+            + notice_html
             + _hidden("next", next_path) + '<div class="actions"><button class="btn">Sign in</button></div></form>')
     return sky.page(status, "Sign in", body)
 
