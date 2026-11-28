@@ -227,7 +227,7 @@ export function MessagesPanel({ embedded = false, on = MESSAGES_PAGE, header }: 
   const controls = (
     <div className="flex h-10 shrink-0 items-center gap-2">
       <TimePicker any time={time} setTime={pickTime} now={Date.now()} />
-      {ok && <CopyLink design link={() => href(list, pinFor(ok.page, ok.at), { ...(limit && { limit }), ...(cursor && { cursor }) })} />}
+      {ok && <CopyLink link={() => href(list, pinFor(ok.page, ok.at), { ...(limit && { limit }), ...(cursor && { cursor }) })} />}
       <Tooltip content={!time.preset ? "A fixed range in the past does not update" : cursor ? "A later page does not update" : following ? "Stop asking for new messages" : "Ask for new messages every 15 s"} className="inline-flex">
         <button type="button" onClick={() => setLive(!live)} disabled={!time.preset || !!cursor} aria-pressed={following}
           className={`${BUTTON} w-[92px] justify-center gap-2 disabled:opacity-50 disabled:hover:text-ink-2`}>

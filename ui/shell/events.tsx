@@ -100,7 +100,7 @@ export function EventsPage() {
   const controls = (
     <div className="flex h-10 shrink-0 items-center gap-2">
       <TimePicker time={time} setTime={setTime} now={Date.now()} />
-      <CopyLink design link={() => eventsHref(query, pinned(time))} />
+      <CopyLink link={() => eventsHref(query, pinned(time))} />
       <Tooltip content={!time.preset ? "A fixed range in the past does not update" : following ? "Pause new events" : "Resume new events"} className="inline-flex">
         <button type="button" onClick={() => setLive(!live)} disabled={!time.preset} aria-pressed={following}
           className={`${BUTTON} w-[92px] justify-center gap-2 disabled:opacity-50 disabled:hover:text-ink-2`}>
