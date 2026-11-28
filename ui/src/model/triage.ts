@@ -249,11 +249,14 @@ function inTime(ms: number, nowMs: number): string {
 export const ignoreText = (s: number) => (s === 3600 ? "1 h" : s === 86_400 ? "24 h" : `${s / 86_400} days`);
 export const notesText = (n: number) => (n ? `${n} ${n === 1 ? "note" : "notes"}` : "");
 
+/** "4 more messages", "1 more message". */
+const moreText = (n: number) => `${n} more ${n === 1 ? "message" : "messages"}`;
+
 /** The status tag, when there is one: Resolved, Resolved, for the next version, Ignored until 18:00, Ignored. */
 export function statusTag(t: Triage, nowMs: number): { word: string; tone: "ok" | "muted" | "critical" } | null {
   if (t.regressed && t.status === "open") return { word: "Regressed", tone: "critical" };
   if (t.status === "resolved") return { word: t.mode === "next_version" ? "Resolved, for the next version" : "Resolved", tone: "ok" };
-  if (t.status === "ignored") return { word: t.until !== null ? `Ignored until ${atClock(t.until, nowMs)}` : t.more !== null ? `Ignored for ${t.more} more` : "Ignored", tone: "muted" };
+  if (t.status === "ignored") return { word: t.until !== null ? `Ignored until ${atClock(t.until, nowMs)}` : t.more !== null ? `Ignored for ${moreText(t.more)}` : "Ignored", tone: "muted" };
   return null;
 }
 
@@ -316,7 +319,7 @@ export function messageLine(t: Triage, p: People, nowMs: number): string {
   const parts: string[] = [];
   if (t.regressed && t.status === "open") parts.push("Regressed");
   if (t.status === "resolved") parts.push(`Resolved by ${t.statusBy === p.me ? "you" : personName(t.statusBy, p)}`);
-  if (t.status === "ignored") parts.push(t.until !== null ? `Ignored until ${atClock(t.until, nowMs)}` : t.more !== null ? `Ignored for ${t.more} more` : "Ignored");
+  if (t.status === "ignored") parts.push(t.until !== null ? `Ignored until ${atClock(t.until, nowMs)}` : t.more !== null ? `Ignored for ${moreText(t.more)}` : "Ignored");
   if (t.assignee) parts.push(t.assignee === p.me ? "You're on it" : `${personName(t.assignee, p)} is on it`);
   if (t.notes) parts.push(notesText(t.notes));
   return parts.join(", ");
@@ -355,8 +358,8 @@ export function activityText(e: ThreadItem, p: People): string {
     case "unignored": return `${actor} stopped ignoring this.`;
     case "ignore_ended": {
       const by = typeof d.by === "string" ? who(d.by, p) : null;
-      if (d.why === "count" && typeof d.more === "number") return `Back: ${d.more} more messages${by ? ` since ${by} ignored it` : ""}.`;
-      return "Back: the ignore's time is up.";
+      if (d.why === "count" && typeof d.more === "number") return `Back after ${moreText(d.more)}${by ? ` since ${by} ignored it` : ""}.`;
+      return "Back: the ignore ended.";
     }
     case "regressed": {
       const n = typeof d.count === "number" ? d.count : 1;

@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { StatePill, purgeText, stateLook } from "../design/pills.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { fmtMs } from "../model/format.ts";
-import { RECEIVES_TITLE, duplicateWhy, duplicateWhyText, fmtTime, shortId, type MessageSummary } from "./Messages.tsx";
+import { HANDLED_TITLE, RECEIVES_TITLE, duplicateWhy, duplicateWhyText, fmtTime, shortId, type MessageSummary } from "./Messages.tsx";
 
 /** A row of the list: a list API's message, with the times the hosted list measures (lib/app/message-times.ts). */
 export type MessageRow = MessageSummary & {
@@ -40,7 +40,7 @@ const queueOf = (m: MessageRow) => m.current_queue || m.source_queue || "?";
 /** What the queue cell says after the name: in a dead-letter queue, or a move SQS should have made by now. */
 function queueNote(m: MessageRow): string {
   if (m.in_dead_letter_queue) return `dead-letter queue of ${m.source_queue || "?"}`;
-  if (m.dead_letter_queue_move === "not_seen_on_dlq_yet") return "maxReceiveCount reached, move to the DLQ not seen yet";
+  if (m.dead_letter_queue_move === "not_seen_on_dlq_yet") return "reached maxReceiveCount; the move to the dead-letter queue isn't seen yet";
   return "";
 }
 
@@ -80,7 +80,7 @@ export const MESSAGE_COLUMNS: MessageColumn[] = [
     cell: (m) => <span className={`tabular-nums ${m.deliveries > 1 ? "font-medium text-warning-text" : ""}`}>{m.deliveries}</span>,
     text: (m) => String(m.deliveries),
   },
-  { id: "handled", label: "Handled", align: "right", cell: (m) => <span className="tabular-nums">{m.successful_deliveries}</span>, text: (m) => String(m.successful_deliveries) },
+  { id: "handled", label: "Handled", align: "right", tip: HANDLED_TITLE, cell: (m) => <span className="tabular-nums">{m.successful_deliveries}</span>, text: (m) => String(m.successful_deliveries) },
   {
     id: "in_queue", label: "In queue", align: "right", cell: inQueue, fills: (m) => m.in_queue_ms !== undefined,
     text: (m) => (m.in_queue_ms === null || m.in_queue_ms === undefined ? "" : `${fmtMs(Math.round(m.in_queue_ms))}${m.waiting ? " so far" : ""}`),

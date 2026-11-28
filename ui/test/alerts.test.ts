@@ -9,7 +9,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AlertChannels, AlertMe, AlertRules } from "../src/alerts/AlertViews.tsx";
 import {
-  FOREVER, channelRowsOf, checkEvery, checkStatus, quietText, ruleState, rulesViewOf, sortRules, whenText,
+  FOREVER, NAME_PLACEHOLDER, channelRowsOf, checkEvery, checkStatus, heldText, quietText, ruleState, rulesViewOf, sortRules, whenText,
   type ApiChannel, type ApiRules, type ApiState,
 } from "../src/alerts/Alerts.ts";
 import type { AlertHrefs, ChannelActions, ChannelRow, RuleActions, RuleView, RulesView } from "../src/alerts/types.ts";
@@ -73,8 +73,9 @@ test("the rules list: firing first, then on, snoozed or held, muted", () => {
   ];
   assert.deepEqual(sortRules(rules).map((r) => r.id), ["firing", "on", "snoozed", "held", "muted"]);
   assert.equal(whenText(rule("x", { mode: "every", quietS: 0 }), view([]).quiet), "Every check with new messages");
-  assert.equal(whenText(rule("x"), view([]).quiet), "Back after 6 h quiet");
-  assert.equal(whenText(rule("x", { quietS: 604_800 }), view([]).quiet), "Back after 7 days quiet", "a period no longer offered still reads");
+  assert.equal(whenText(rule("x"), view([]).quiet), "New messages arrive after none for 6 h");
+  assert.equal(heldText({ by: "Ana", until: null, more: 4 }), "Held while this cause is ignored (by Ana, until 4 more messages). It sends again when the cause stops being ignored.");
+  assert.equal(whenText(rule("x", { quietS: 604_800 }), view([]).quiet), "New messages arrive after none for 7 days", "a period no longer offered still reads");
 });
 
 test("the rules list draws each rule, its channels, and the dashboard rules read-only", () => {
@@ -85,7 +86,7 @@ test("the rules list draws each rule, its channels, and the dashboard rules read
   copyRules(html);
   assert.ok(html.indexOf('data-rule="2"') < html.indexOf('data-rule="1"'), "the firing rule first");
   assert.match(html, /href="\/stuck\?cause=c1"/);
-  assert.match(html, /Back after 6 h quiet, sent to #oncall\. Made by Ana\./);
+  assert.match(html, /New messages arrive after none for 6 h, sent to #oncall\. Made by Ana\./);
   assert.match(html, /no channel: its channels were removed/);
   assert.match(html, /Not checked yet\./);
   assert.doesNotMatch(html, /Made by \./, "no name, no made by");
@@ -126,6 +127,9 @@ test("channels: an admin can test and remove them and add one; everyone else is 
   assert.match(admin, /whsec_abc/);
   assert.match(admin, /Shown once: copy it now\./);
   assert.match(admin, />Add channel</);
+  assert.match(admin, />Alert levels</, "the select is named for what it picks");
+  assert.match(admin, /placeholder="#oncall"/, "a Slack channel's name looks like one");
+  assert.deepEqual(NAME_PLACEHOLDER, { slack: "#oncall", webhook: "Incident bot", email: "On-call team" });
   assert.match(admin, /font-mono[^"]*">https:\/\/hooks\.slack\.com/, "a target is a value, in mono");
 
   const member = renderToStaticMarkup(createElement(AlertChannels, { channels: rows.map((c) => ({ ...c, secret: null })), canManage: false, actions: channelActions, managers: "an owner or admin" }));

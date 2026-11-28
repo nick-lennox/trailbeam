@@ -10633,7 +10633,7 @@
   },
   {
    "id": "processing_time",
-   "label": "Processing time, p95",
+   "label": "Handling time, p95",
    "col": null,
    "ask": "Are consumers keeping up?",
    "unit": "ms",
@@ -10655,7 +10655,7 @@
   },
   {
    "id": "dlq_depth",
-   "label": "DLQ depth",
+   "label": "Dead-letter queue depth",
    "col": null,
    "ask": "Is it failing?",
    "unit": "count",
@@ -10677,7 +10677,7 @@
   },
   {
    "id": "processing_errors",
-   "label": "Processing errors",
+   "label": "Handling errors",
    "col": null,
    "ask": "Is it failing?",
    "unit": "count",
@@ -10721,7 +10721,7 @@
   },
   {
    "id": "near_dlq",
-   "label": "One receive from the DLQ",
+   "label": "One receive from the dead-letter queue",
    "col": null,
    "ask": "Is it about to fail?",
    "unit": "pct",
@@ -11070,7 +11070,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "Processing time, p95",
+     "name": "Handling time, p95",
      "now": 1412,
      "points": [
       140,
@@ -11138,7 +11138,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "DLQ depth",
+     "name": "Dead-letter queue depth",
      "now": 2,
      "points": [
       2,
@@ -11206,7 +11206,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "Processing errors",
+     "name": "Handling errors",
      "now": 14,
      "points": [
       0,
@@ -11342,7 +11342,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "One receive from the DLQ",
+     "name": "One receive from the dead-letter queue",
      "now": 12.5,
      "points": [
       12.5,
@@ -12604,7 +12604,7 @@
    "data": "none",
    "expected": [
     {
-     "name": "Processing time, p95",
+     "name": "Handling time, p95",
      "now": 635,
      "points": [
       0,
@@ -12686,7 +12686,7 @@
    "data": "none",
    "expected": [
     {
-     "name": "Processing errors",
+     "name": "Handling errors",
      "now": 3,
      "points": [
       0,
@@ -13064,7 +13064,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "Processing time, p95",
+     "name": "Handling time, p95",
      "now": 1412,
      "points": [
       0,
@@ -13122,7 +13122,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "DLQ depth",
+     "name": "Dead-letter queue depth",
      "now": 2,
      "points": [
       1,
@@ -13180,7 +13180,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "Processing errors",
+     "name": "Handling errors",
      "now": 14,
      "points": [
       0,
@@ -13296,7 +13296,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "One receive from the DLQ",
+     "name": "One receive from the dead-letter queue",
      "now": 12.5,
      "points": [
       12.5,
@@ -13587,7 +13587,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "Processing time, p95",
+     "name": "Handling time, p95",
      "now": 0,
      "points": [
       0,
@@ -13637,7 +13637,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "DLQ depth",
+     "name": "Dead-letter queue depth",
      "now": 0,
      "points": [
       0,
@@ -13687,7 +13687,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "Processing errors",
+     "name": "Handling errors",
      "now": 0,
      "points": [
       0,
@@ -13787,7 +13787,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "One receive from the DLQ",
+     "name": "One receive from the dead-letter queue",
      "now": 0,
      "points": [
       0,
@@ -14714,7 +14714,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "Processing time, p95",
+     "name": "Handling time, p95",
      "now": 0,
      "points": [
       0,
@@ -14915,7 +14915,7 @@
    "data": "own",
    "expected": [
     {
-     "name": "Processing time, p95",
+     "name": "Handling time, p95",
      "now": 964,
      "points": [
       723,

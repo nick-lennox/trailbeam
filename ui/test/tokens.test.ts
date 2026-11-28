@@ -48,8 +48,8 @@ test("a token shows only its first 8 characters; revoked and expired ones stay, 
     kind: "personal", onRevoke: noop,
     tokens: [personal(1), personal(2, { status: "revoked", revoked_at_ms: 1795500000000 }), personal(3, { status: "expired", expires_at_ms: 1795450000000 })],
   }));
-  assert.equal(shownPrefix("tbp_cd1y"), "tbp_cd1y…");
-  assert.ok(row(html, 1).includes("tbp_cd1y…"));
+  assert.equal(shownPrefix("tbp_cd1y"), "tbp_cd1y");
+  assert.ok(row(html, 1).includes("tbp_cd1y"));
   assert.ok(button(row(html, 1), "Revoke"));
   for (const id of [2, 3]) assert.ok(!button(row(html, id), "Revoke"), `row ${id}`);
   assert.ok(row(html, 2).includes("Revoked") && row(html, 2).includes("2026-11-"));
@@ -99,6 +99,6 @@ test("the tokens views follow the design rules: no native title, sans labels, mo
   assert.ok(!html.includes("title="), "hover notes are the app's Tooltip");
   for (const th of html.matchAll(/<th[^>]*>/g)) assert.doesNotMatch(th[0], /font-mono/, th[0]);
   for (const label of html.matchAll(/<label[^>]*>/g)) assert.doesNotMatch(label[0], /font-mono/, label[0]);
-  assert.match(row(html, 1), /font-mono[^"]*">tbp_cd1y…</, "the prefix is a value");
+  assert.match(row(html, 1), /font-mono[^"]*">tbp_cd1y</, "the prefix is a value");
   assert.match(row(html, 1), /<span class="text-sm text-ink-3">never<\/span>/, "never is a word, not a value");
 });

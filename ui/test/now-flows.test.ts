@@ -89,6 +89,35 @@ test("In ‹queue› now with nothing read, and with the queue's timeout unread"
   assert.ok(out.includes("Highest receive count first"));
 });
 
+test("In ‹queue› now names the dead-letter queue it knows of, and says when the redrive policy was not read (QV-776)", () => {
+  const unread = { ...view().config, dlq: null, visibilityTimeoutS: null, visibilityKnown: false };
+  // moves to orders-dlq were seen, the policy was not read: named as seen, never "No dead-letter queue"
+  const seen = html(createElement(QueueNowLive, { queue: "orders", view: view({ config: unread }), live: noLive, heldTotal: 3, consumer: "", fifo: false, seenDlq: "orders-dlq", hrefs: NOW_HREFS }));
+  assert.match(seen, /dead-letter queue <span[^>]*>orders-dlq<\/span> \(seen in moves\)/);
+  assert.doesNotMatch(seen, /No dead-letter queue|no redrive policy/);
+  // nothing seen and nothing read
+  const none = html(createElement(QueueNowLive, { queue: "orders", view: view({ config: unread }), live: noLive, heldTotal: 3, consumer: "", fifo: false, hrefs: NOW_HREFS }));
+  assert.ok(none.includes(", dead-letter queue not read"));
+  assert.doesNotMatch(none, /no redrive policy|seen in moves/);
+  // the policy read, and it names none
+  const ok = { status: "ok", detail: "", visible: 0, inFlight: 0 } as unknown as QueueLive;
+  const read = html(createElement(QueueNowLive, { queue: "orders", view: view({ config: { ...view().config, dlq: null, maxReceiveCount: null } }), live: ok, heldTotal: 3, consumer: "", fifo: false, seenDlq: null, hrefs: NOW_HREFS }));
+  assert.ok(read.includes(", no redrive policy"));
+  // the policy read names its own: shown without "seen in moves"
+  const own = html(createElement(QueueNowLive, { queue: "orders", view: view(), live: ok, heldTotal: 3, consumer: "", fifo: false, seenDlq: "orders-dlq", hrefs: NOW_HREFS }));
+  assert.match(own, /dead-letter queue <span[^>]*>orders-dlq<\/span>/);
+  assert.doesNotMatch(own, /seen in moves/);
+});
+
+test("In ‹queue› now's table: a long producer name stays in the filter column, and times and names stay on one line (QV-776)", () => {
+  const out = html(createElement(QueueNowLive, { queue: "orders", view: view(), live: noLive, heldTotal: 3, consumer: "", fifo: false, hrefs: NOW_HREFS }));
+  // a fieldset is as wide as its content unless told otherwise: the counts spilled over the Sent column
+  assert.ok(out.includes(`<fieldset class="min-w-0">`));
+  assert.match(out, /<aside class="grid min-w-0 /);
+  assert.ok((out.match(/<td class="[^"]*whitespace-nowrap/g) ?? []).length >= 8);
+  assert.ok(out.includes("!max-w-[168px]"));
+});
+
 /* ── the page ── */
 const HREFS: OverviewFlowsHrefs = {
   range: (id) => `/?range=${id}`, queue: ({ name, range }) => `/queues/${name}?range=${range}`, issues: (q) => `/issues?queue=${q}`,

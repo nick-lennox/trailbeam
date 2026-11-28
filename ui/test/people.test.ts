@@ -61,22 +61,22 @@ test("the last admin who can sign in can't be demoted, disabled or removed", () 
 test("each status gets its own controls and words", () => {
   const people = [person(1, { role: "admin", you: true }), person(2, { status: "invited" }), person(3, { status: "locked", last_sign_in_ms: Date.UTC(2026, 10, 24, 6, 2) }), person(4, { status: "disabled" })];
   const html = table(people);
-  assert.ok(button(row(html, 2), "New invite link") && linkKind(people[1]) === "invite");
-  assert.ok(button(row(html, 3), "Password reset link") && linkKind(people[2]) === "reset");
+  assert.ok(button(row(html, 2), "Make a new invite link") && linkKind(people[1]) === "invite");
+  assert.ok(button(row(html, 3), "Make a reset link") && linkKind(people[2]) === "reset");
   assert.ok(button(row(html, 4), "Enable") && !/link<\/button>/.test(row(html, 4)), "no link for a disabled person (the server answers 409)");
   assert.match(row(html, 2), />Invited</);
   assert.match(row(html, 3), />Locked for now</);
   assert.match(row(html, 3), />2026-11-24 06:02 UTC</);
   assert.match(row(html, 2), />never</);
   assert.match(row(html, 1), /> \(you\)</);
-  assert.equal(linkButton(people[0]), "Password reset link");
+  assert.equal(linkButton(people[0]), "Make a reset link");
   assert.ok(!/undefined|NaN/.test(html));
 });
 
 test("a person whose change is being sent has their controls off", () => {
   const r = row(table([person(1, { role: "admin" }), person(2, { role: "admin" })], 2), 2);
   assert.match(r, /<select[^>]*disabled=""/);
-  assert.ok(disabledButton(r, "Disable") && disabledButton(r, "Remove") && disabledButton(r, "Password reset link"));
+  assert.ok(disabledButton(r, "Disable") && disabledButton(r, "Remove") && disabledButton(r, "Make a reset link"));
 });
 
 test("one-time links say what they do, how long they last, and that they are shown once", () => {

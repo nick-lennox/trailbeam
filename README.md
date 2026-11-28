@@ -90,6 +90,9 @@ answers a narrower question: where did this one message go?
   an always-on sampler, so your sampling never drops a message's history.
 - **Hands off your queues.** Trailbeam makes no SQS calls of its own and never calls `ReceiveMessage`,
   because a receive raises a message's receive count.
+- **Dashboards and alerts, a preview.** Lay out your own widgets, and send Slack, webhook or email alerts
+  when a cause of stuck messages gets new messages. Both are off by default ([Dashboards](#dashboards),
+  [Alerts](#alerts)).
 - **One container to run.** Trailbeam takes OTLP/HTTP, keeps spans in SQLite, and serves a JSON API
   and a web screen on one port.
 
@@ -488,8 +491,10 @@ TRAILBEAM_TOKEN=$DOC_TOKEN python3 python/smoke/team_check.py http://127.0.0.1:4
 - **Postgres starts with `max_locks_per_transaction = 256`** instead of the stock 64, so a larger read pool or a
   second server on the same database needs no Postgres restart ([lock table](#postgres-lock-table-max_locks_per_transaction)).
   Its port is not published: only the Trailbeam container connects.
-- **Settings** in `.env`: `TRAILBEAM_RETENTION` (default `7d`), `TRAILBEAM_STORE_BODIES` and the port. For
-  per-queue settings, mount a [configuration file](#configuration-file) in `docker-compose.yaml`.
+- **Settings** in `.env`: `TRAILBEAM_RETENTION` (default `7d`), `TRAILBEAM_STORE_BODIES`, the port,
+  [Dashboards](#dashboards) and [Alerts](#alerts) (`TRAILBEAM_DASHBOARDS`, `TRAILBEAM_ALERT_CHECK`), and the public
+  URL and mail server they use. For per-queue settings, mount a [configuration file](#configuration-file) in
+  `docker-compose.yaml`.
 - **Upgrading:** `git pull`, then `docker compose up -d --build --wait` ([Upgrades](#upgrades)). Compose builds
   the image from the checkout with the Postgres driver, so it runs the code you pulled. Releases from 0.4.0
   also publish that image as `ghcr.io/nick-lennox/trailbeam:<version>-postgres`, the Helm chart's default.
@@ -1179,6 +1184,72 @@ A redrive goes only where the reads may go: the **AWS account ID** set in Settin
 the server's credentials) and the **Region** or one of the **Other regions**. A dead-letter queue whose spans name
 another account or region is not redriven, and Trailbeam builds the queue's ARN from those settings, never from
 spans. As for reads, name the dead-letter queues in the policy's `Resource` rather than `*`.
+
+### Dashboards
+
+Dashboards are pages of widgets you lay out yourself: numbers, time series, heatmaps, distributions, gauges,
+top lists, event lists, a queue table, a status grid, a queue flow and notes, drawn from the spans the server
+holds. A widget can have a rule (a warning and a critical limit); with [alerts](#alerts) on, the alert check sends
+a change in its state to your channels. Dashboards are a preview in 0.5 and off by default.
+
+Turn them on with `TRAILBEAM_DASHBOARDS=1` where the server runs (`1`, `true`, `yes` or `on`). In the team install,
+set it in `.env`; in the Helm chart, add it to `extraEnv`. Restart the server, and **Dashboards** is in the sidebar.
+While it is off, `/dashboards` says how to turn it on and every `/api/dashboards` route answers `404`.
+
+- Any member can make, change, star, copy and delete a dashboard, or import one as JSON. A locked dashboard
+  can't be changed until whoever locked it, or an admin, unlocks it.
+- Queue measures (depth, age of the oldest message, headroom) come from AWS. Without [AWS reads](#aws-reads), those
+  widgets say the server does not read them.
+- A widget reads at most the last 30 days, and the events of at most 2,000 messages, the most recent. A
+  dashboard holds up to 50 widgets.
+- Dashboards are kept in the store, so they outlive a restart and every replica on one Postgres shows the same ones.
+
+The API is the Dashboards tag of [`contract/openapi.yaml`](contract/openapi.yaml).
+
+### Alerts
+
+Alerts send a message to Slack, a webhook or email when a cause of stuck messages gets new messages, and, with
+[dashboards](#dashboards) on, when a widget's rule changes state. Alerts are a preview in 0.5 and off by default.
+
+Turn them on with `TRAILBEAM_ALERT_CHECK` where the server runs: a number of minutes from 1 to 1440, or `on` for
+every 5. In the team install, set it in `.env`; in the Helm chart, add it to `extraEnv`. Restart the server, and
+**Alerts** is in the sidebar and each cause on **Stuck** has **Alert me**. A value the server can't read stops it at
+start with the reason.
+
+```sh norun="starts a server that keeps running; test_alerts_api.py tests the settings"
+TRAILBEAM_ALERT_CHECK=5 \
+TRAILBEAM_PUBLIC_URL=https://trailbeam.example.com \
+trailbeam
+```
+
+1. Add a channel on the **Alerts** page. Only an admin can add, test or remove one (anyone, before accounts
+   exist).
+   - Slack: an incoming webhook URL, `https://hooks.slack.com/services/...`.
+   - Webhook: an `https` URL on a public host. Each `POST` is JSON, signed in `x-trailbeam-signature`
+     (`sha256=` and the hex HMAC-SHA256 of `<x-trailbeam-timestamp>.<body>`, keyed with the secret shown once when
+     you add the channel).
+   - Email: up to 10 addresses. Needs the mail server in the table below.
+2. Press **Send test** on the channel. The page shows whether the channel took it.
+3. On **Stuck**, press **Alert me** on a cause, pick the channels, and pick when to send: at every check that
+   finds new messages, or once, then again only after a quiet period. Any member can make, mute and delete rules.
+
+The check runs inside the server, one at a time. Replicas on one Postgres share rules and channels, and a lease
+keeps two of them from checking at once. `/api/health` reports it under `alert_check`: `ok`, `late`, `stuck` or
+`failing`, with the reason.
+
+Set these too:
+
+| Setting | What it does |
+|---|---|
+| `TRAILBEAM_PUBLIC_URL` (`--public-url`) | Where people open Trailbeam. Links in scheduled alerts start with it. Without it they point to `http://localhost`, and the server logs a warning at start. |
+| `TRAILBEAM_SMTP_HOST`, `TRAILBEAM_SMTP_FROM` and the other `TRAILBEAM_SMTP_*` settings | The mail server for email channels, the same one invite emails use ([Invites by email](#accounts-ingest-tokens-and-personal-api-tokens)). Without it, an email channel's sends fail with "No mail server is set up for alert emails." |
+| `TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS=1` | Lets a webhook or Slack channel point at a private or local address, such as an internal Alertmanager or a service on the same Compose network. Plain `http` then goes only to private addresses. Cloud metadata addresses are refused even with it on. |
+
+- A channel that fails a send is marked on the **Alerts** page and not retried. The next change goes out at the
+  next check.
+- A rule still alerts while its cause is ignored in triage.
+
+The API is the Alerts tag of [`contract/openapi.yaml`](contract/openapi.yaml).
 
 ### Configuration file
 
@@ -2042,14 +2113,14 @@ without one, anyone who can reach the port can read it. Labels never hold span d
 | `trailbeam_db_file_bytes{file}` | gauge | SQLite file (`main`) and write-ahead log (`wal`) size |
 | `trailbeam_db_last_row` | gauge | Highest span row ID (one index step, not a count) |
 | `trailbeam_build_info{version}`, `trailbeam_start_time_seconds` | gauge | Version and start time |
-| `trailbeam_stuck_messages` | gauge | Messages stuck now, as the Stuck page lists them (no final delete after `TRAILBEAM_STUCK_AFTER_S`), counted up to 1000 |
+| `trailbeam_stuck_messages` | gauge | Messages stuck now, as the Issues page counts them (no final delete after `TRAILBEAM_STUCK_AFTER_S`), counted up to 1000 |
 | `trailbeam_stuck_oldest_age_seconds` | gauge | How long ago the oldest stuck message was first seen; 0 when none is |
 | `trailbeam_dead_lettered_messages_recent` | gauge | Messages moved to a dead-letter queue in the last 15 minutes |
 | `trailbeam_stuck_after_seconds` | gauge | The stuck threshold, `TRAILBEAM_STUCK_AFTER_S` |
 
 The stuck and dead-letter gauges are read from the store (at most every 10 seconds), so every replica of one
 store serves the same value: take `max` across replicas, not `sum`. They have no queue or tenant label, which
-would make the number of series grow with your queues and customers; the Stuck page and the queue filter say which.
+would make the number of series grow with your queues and customers; the Issues page and its queue filter say which.
 
 There are no retention purge metrics yet: the server logs each purge pass that deletes spans, and any pass that fails.
 
@@ -2221,6 +2292,10 @@ Run each line from the repository root:
 (cd ui && npm ci && npm test && npm run build)   # the shared UI, built into the server package
 pytest demo/check/tests
 ```
+
+To run the server from a clone, build the web screen first and name both packages in one `pip install`
+(`pip install ./python ./server`): with `./server` alone, pip gets the client library `trailbeam` from PyPI, and
+0.4.0 there still carries its own copy of the server and an old web screen. `trailbeam start` warns about either.
 
 The Node.js tests that need an SQS emulator are skipped unless `TRAILBEAM_TEST_SQS_ENDPOINT` is set, for
 example to `http://localhost:9324`. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) also runs

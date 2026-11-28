@@ -266,7 +266,7 @@ export function MessagesPage() {
 export const DuplicatesHeader = () => (
   <header className="shrink-0 border-b border-line px-5 pb-3 pt-4">
     <h1 className="font-serif text-[1.5rem] text-ink">Duplicates</h1>
-    <p className="mt-1 max-w-[80ch] text-[13px] text-ink-2">Messages SQS returned more than once, or that more than one consumer handled. A second receive is expected after your own <C>ChangeMessageVisibility</C> or a failed receive. It is worth a look when the visibility timeout expired while a consumer was still working, or when a message was handled twice.</p>
+    <p className="mt-1 max-w-[80ch] text-[13px] text-ink-2">Messages SQS returned more than once, or that more than one consumer handled. A second receive is expected after your own <C>ChangeMessageVisibility</C>, or when a consumer failed and the visibility timeout ended. It is worth a look when the visibility timeout expired while a consumer was still working, or when a message was handled twice.</p>
   </header>
 );
 

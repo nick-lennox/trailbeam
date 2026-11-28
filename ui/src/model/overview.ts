@@ -42,7 +42,7 @@ export type QueueData<T = unknown, V extends InQueueLike = InQueueLike> = { aws:
   "No data" in its place.
 
   Each consumer's processing figures come from the range's events (eventsOfTimeline), the same
-  events the dashboards chart "Processing time, p95" and "Processing errors" from: its deletes
+  events the dashboards chart "Handling time, p95" and "Handling errors" from: its deletes
   and processing errors. A consumer with neither in the range has none, and the page says "No data".
 */
 export type OverviewData<T = unknown, V extends InQueueLike = InQueueLike> = {

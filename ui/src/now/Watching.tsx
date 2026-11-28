@@ -70,3 +70,25 @@ export function Watching({ title, children, className = "" }: { title: ReactNode
     </div>
   );
 }
+
+/*
+  A page's first-run state, while nothing has reported to the workspace (or, open source, while the server has
+  never stored a span): the watching picture, one message ending in what this page will show, and the host's ways
+  forward. The Overview and the Event explorer draw it in place of their empty charts and tables (QV-272, QV-777).
+*/
+export function NothingReporting({ to, children, actions }: { to?: string; children: ReactNode; actions?: ReactNode }) {
+  return (
+    <section
+      aria-label="No data"
+      className="rounded-card border border-line bg-canvas/60"
+      style={{ backgroundImage: "radial-gradient(color-mix(in srgb, var(--color-ink-3) 26%, transparent) 1px, transparent 1px)", backgroundSize: "16px 16px", backgroundPosition: "8px 8px" }}
+    >
+      <div className="mx-auto flex min-h-[400px] max-w-lg flex-col items-center justify-center px-6 py-12 text-center">
+        <Watching title="Waiting to observe your first message">
+          No data yet. Nothing is reporting to {to ?? "this workspace"}. {children}
+        </Watching>
+        {actions && <div className="mt-5 flex flex-wrap justify-center gap-3">{actions}</div>}
+      </div>
+    </section>
+  );
+}

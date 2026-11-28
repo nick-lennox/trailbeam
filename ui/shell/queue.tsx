@@ -163,7 +163,7 @@ export function QueueShellPage() {
     queue: (name) => queueHref(name),
     // only "Sent" works on this server's lists today: they take a window but no sort or state filter (design §6)
     messages: ({ queue, fromMs, toMs, view }) => (view === "sent" ? `/?queue=${encodeURIComponent(queue)}&from_ms=${fromMs}&to_ms=${toMs - 1}` : null),
-    stuck: (queue) => `/stuck?queue=${encodeURIComponent(queue)}`,
+    stuck: (queue) => `/issues?queue=${encodeURIComponent(queue)}`,
     range: (preset) => `/queue?${queueQuery({ name: u.name, at: u.at, split: u.split, range: { kind: "preset", preset } })}`,
   };
   const now = Date.now();

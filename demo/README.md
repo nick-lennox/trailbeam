@@ -72,7 +72,7 @@ On RabbitMQ (`rmq-orders`, a quorum queue that dead-letters to `rmq-orders-dlq`)
 | `crash` | 1 in 10 | closes its connection with the delivery open, reconnects, acks the next | the channel closed (by the client), returned to the queue, a second delivery |
 | `poison` | 1 in 25 | `basic.reject` without requeue | refused, a move to the dead-letter queue **reported by RabbitMQ** (`x-death`, reason `rejected`), a delivery on `rmq-orders-dlq` |
 
-Pick a message on the start page, or look at `/duplicates` and `/stuck` (stuck after 60 s in the demo).
+Pick a message on the start page, or look at `/duplicates` and `/issues` (a message counts as not finished after 60 s in the demo).
 The JSON API is under `/api/` ([API reference](https://docs.trailbeam.app/reference/api)).
 
 ## Notes

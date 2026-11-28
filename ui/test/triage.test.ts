@@ -60,7 +60,8 @@ test("the status words", () => {
   assert.equal(statusLine(t({ status: "resolved", statusBy: "ana", statusAt: NOW - 2 * 3_600_000, assignee: "sam" }), P, NOW), "Resolved by Ana 2 h ago. Assigned to Sam.");
   assert.equal(statusLine(t({ status: "ignored", statusBy: "me", more: 10, seen: 3 }), P, NOW), "Ignored by you until 10 more messages: 3 so far. Nobody assigned.");
   assert.equal(statusTag(t({ status: "open", regressed: true }), NOW)?.word, "Regressed");
-  assert.equal(statusTag(t({ status: "ignored", more: 100 }), NOW)?.word, "Ignored for 100 more");
+  assert.equal(statusTag(t({ status: "ignored", more: 100 }), NOW)?.word, "Ignored for 100 more messages");
+  assert.equal(statusTag(t({ status: "ignored", more: 1 }), NOW)?.word, "Ignored for 1 more message");
   assert.equal(statusTag(t({}), NOW), null);
   assert.equal(regressionText(t({ regressed: true, regressedAt: NOW, regressedCount: 4, statusBy: "ana" }), P, NOW).replace(/\d\d:\d\d/, "HH:MM"),
     "Regressed HH:MM: 4 new failures after Ana resolved it.");
@@ -76,7 +77,8 @@ test("the thread's words", () => {
   assert.equal(activityText(e("assigned", "sam", { assignee: "sam" }), P), "Sam assigned this to themself.");
   assert.equal(activityText(e("assigned", "me", { assignee: "me" }), P), "You assigned this to yourself.");
   assert.equal(activityText(e("ignored", "ana", { forS: 86_400 }), P), "Ana ignored this for 24 h.");
-  assert.equal(activityText(e("ignore_ended", null, { why: "count", more: 10, by: "ana" }), P), "Back: 10 more messages since Ana ignored it.");
+  assert.equal(activityText(e("ignore_ended", null, { why: "count", more: 10, by: "ana" }), P), "Back after 10 more messages since Ana ignored it.");
+  assert.equal(activityText(e("ignore_ended", null, { why: "time" }), P), "Back: the ignore ended.");
   assert.equal(activityText(e("regressed", null, { count: 2, by: "ana", version: "1.4.4" }), P), "Regressed: 2 new failures after Ana resolved it, seen in 1.4.4.");
   assert.deepEqual(noteParts("see https://x.test/a. and 0a1b2c3d-0000-4000-8000-00000000abcd"),
     [{ text: "see " }, { url: "https://x.test/a" }, { text: ". and " }, { mid: "0a1b2c3d-0000-4000-8000-00000000abcd" }]);

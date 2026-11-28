@@ -141,7 +141,7 @@ test("the table: a row per active queue, the first open, idle ones behind the to
   assert.doesNotMatch(h, /legacy/, "idle rows hidden until asked for");
   assert.match(h, /By Lambda/);
   assert.match(h, new RegExp(NO_RECEIVE));
-  assert.match(h, /Stuck on orders →/);
+  assert.match(h, /Issues on orders →/);
   assert.match(h, /href="\/queue\?name=orders#senders"/);
   assert.match(h, /fifo<\/span>/);
   assert.match(h, /⟳ Updated 14:05:00/);
@@ -226,14 +226,14 @@ test("/overview's window: a preset ends now, a fixed range doesn't, and Copy lin
   assert.deepEqual(widerPresets(ou("range=7d")), []);
 });
 
-test("/overview's links carry the range: the queue page in its own terms, Stuck with range or from_ms/to_ms", () => {
+test("/overview's links carry the range: the queue page in its own terms, Issues with range, or from and to in UTC", () => {
   const h = selfHostedHrefs(ou("range=24h"), NOW);
   assert.equal(h.queue(orders), "/queue?name=orders&range=1d");
   assert.equal(h.queue(orders, "consumers"), "/queue?name=orders&range=1d#consumers");
   assert.equal(h.queue({ ...orders, queue: "orders (123456789012)" }), "/queue?name=orders&at=123456789012%3Aeu-west-1&range=1d", "at= only when the label told two apart");
-  assert.equal(h.stuck(orders), "/stuck?queue=orders&range=24h");
+  assert.equal(h.stuck(orders), "/issues?queue=orders&range=1d");
   assert.equal(selfHostedHrefs(ou(""), NOW).queue(orders), "/queue?name=orders", "1h is both pages' default");
   const f = selfHostedHrefs(ou("from_ms=1000&to_ms=2000"), NOW);
   assert.equal(f.queue(orders), "/queue?name=orders&from=1000&to=2000");
-  assert.equal(f.stuck(orders), "/stuck?queue=orders&from_ms=1000&to_ms=2000");
+  assert.equal(f.stuck(orders), "/issues?queue=orders&from=1970-01-01T00%3A00%3A01Z&to=1970-01-01T00%3A00%3A02Z");
 });

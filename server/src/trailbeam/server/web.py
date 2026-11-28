@@ -18,7 +18,7 @@ Pages:
   exchange, routed, delivered, acked, requeued, refused, returned to the queue with its cause, and a move to a
   dead-letter queue reported by RabbitMQ's ``x-death`` header (``_amqp``).
 - ``/duplicates``: duplicates (messages received or handled more than once).
-- ``/stuck``: stuck messages.
+- ``/stuck``: stuck messages. ``/issues`` is the same page without the shared UI's build (with it, Issues: QV-708).
 - ``/tenants``: per tenant, sends, share, p95 time in queue and dead-lettered messages (contract/tenants.md).
   ``/?tenant=...`` lists one tenant's messages.
 
@@ -229,10 +229,16 @@ footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 
 def handle(api: Callable[[str, dict], object], api_error: type, path: str, query: dict) -> Optional[Response]:
     """Render the page for ``path``; None if ``path`` is not a page. ``api`` is ``App.api``."""
-    pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/tenants": _tenants,
+    pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/issues": _stuck, "/tenants": _tenants,
              "/people": _people, "/tokens": _tokens, "/account": _account}
     page = pages.get(path)
     if page is None:
+        if path in SHELL_ONLY:
+            return _shell_only(*SHELL_ONLY[path])
+        from .ui_files import is_issue_page
+        if is_issue_page(path):
+            return _shell_only("Issue", "<code>/api/causes?cause=</code> with the issue's ID, and the "
+                               '<a href="/stuck">stuck messages</a> page')
         return None
     try:
         return page(api, query)
@@ -245,11 +251,24 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 # ---- pages ------------------------------------------------------------------------------------
 
 
-def _account(api, q: dict) -> Response:
-    """``/account`` without the shared UI's build: as ``/people``, it says where the same facts are without it."""
-    return _page(200, "Account", "<h1>Account</h1><p>The Account page is part of the web screen's build, which this "
-                 "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
-                 "<code>/api/me</code> says who you are signed in as and how you can sign in.</p>")
+# The shell's pages that have no server-rendered version (ui_files.SHELL_PAGES): without the shared UI's build, each
+# says so, as /people does, and where its data is in the API, instead of a bare 404 (QV-769).
+SHELL_ONLY = {
+    "/overview": ("Overview", "<code>/api/flows</code> and <code>/api/causes</code>"),
+    "/queues": ("Queues", "<code>/api/queues</code>"),
+    "/queue": ("Queue", "<code>/api/queues/{queue}/now</code> and <code>/api/queues/{queue}/series</code>"),
+    "/events": ("Events", "<code>/api/events</code>"),
+    "/dashboards": ("Dashboards", "<code>/api/dashboards</code>"),
+    "/alerts": ("Alerts", "<code>/api/alerts/rules</code> and <code>/api/alerts/channels</code>"),
+    "/settings": ("Settings", "<code>/api/settings/aws</code> (an admin can turn the AWS reads on there with a "
+                  "<code>PATCH</code>)"),
+}
+
+
+def _shell_only(title: str, api_hint: str) -> Response:
+    return _page(200, title, f"<h1>{escape(title)}</h1><p>The {escape(title)} page is part of the web screen's build, "
+                 "which this install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). "
+                 f"Without it, its data is in the API: {api_hint}.</p>")
 
 
 def _people(api, q: dict) -> Response:
@@ -784,8 +803,10 @@ def _consumer(c: dict) -> str:
 
 
 RECEIVES_TITLE = ("Receives Trailbeam observed, on every queue, the receive from a dead-letter queue included. "
-                  "SQS's own receive count can be higher: it counts receives by consumers Trailbeam doesn't see. "
-                  "Handled: a receive that ended in a delete or a successful Lambda record.")
+                  "SQS's own receive count can be higher: it counts receives by consumers Trailbeam doesn't see.")
+HANDLED_TITLE = "Receives that ended in a delete, or in a Lambda record that succeeded."
+# These pages have no Handled column: the Receives cell says "2 · 1 handled", so its head explains both.
+_RECEIVES_HEAD_TITLE = f"{RECEIVES_TITLE} Handled: {HANDLED_TITLE[0].lower()}{HANDLED_TITLE[1:]}"
 
 
 def _receives(m: dict) -> str:
@@ -822,7 +843,7 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
             cells.append(extra[1](m))
         rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
     return ("<table><thead><tr>" + "".join(
-        f'<th title="{escape(RECEIVES_TITLE)}">{escape(c)}</th>' if c == "Receives" else f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
+        f'<th title="{escape(_RECEIVES_HEAD_TITLE)}">{escape(c)}</th>' if c == "Receives" else f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
             + "".join(rows) + "</tbody></table>")
 
 

@@ -18,5 +18,18 @@ The client library, with the hooks for boto3, AWS Lambda and pika, is the `trail
 version, and installs into the same `trailbeam` package, so `import trailbeam.server` and
 `python -m trailbeam.server` keep working.
 
+From a clone of the repository, build the web screen first and install both packages together, so pip doesn't
+fetch the client library from PyPI instead of `./python` (`trailbeam` 0.4.0 from PyPI still carries its own
+`trailbeam/server/` and an old web screen):
+
+```sh norun="installs from a clone; CI installs it in its python job"
+(cd ui && npm ci && npm run build)   # the web screen, built into server/src/trailbeam/server/ui
+pip install ./python './server[postgres]'
+trailbeam start
+```
+
+Without the build, Trailbeam serves its server-rendered pages only; the pages that only the web screen draws say
+how to build it. `trailbeam start` logs a warning for either problem.
+
 Documentation: https://docs.trailbeam.app. Source: https://github.com/nick-lennox/trailbeam (`server/`, with the
 web screen in `ui/`).

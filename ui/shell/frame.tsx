@@ -1,7 +1,7 @@
 /*
   The open-source shell's app frame (row 0c of the one-UI plan): the shared Sidebar (@trailbeam/ui/design) with
-  this server's pages as its items, inside the design system's theme. Dashboards is one only while the server
-  answers /api/dashboards (TRAILBEAM_DASHBOARDS on), Alerts only while it answers /api/alerts (TRAILBEAM_ALERT_CHECK on). Every page is in it (Stuck was the last to
+  this server's pages as its items, inside the design system's theme. Dashboards is one only while /api/me says
+  the server has them on (TRAILBEAM_DASHBOARDS), Alerts only while it has the alert check on (TRAILBEAM_ALERT_CHECK). Every page is in it (Stuck, now Issues, was the last to
   leave the old header frame, QV-765). The items: People only for admins, Tokens for
   anyone signed in, and Settings for admins (anyone before accounts exist). The account slot is drawn as the hosted app's: the initials, the name (a link to the Account page), and a
   door icon that signs out when signing out ends anything. The sidebar is the one place to sign out (board, QV-588).
@@ -14,8 +14,8 @@ import { AppThemeProvider, MessageSearch, Sidebar, Tooltip, UiLink, tenantText, 
 import { messageHref, suggestTenants, tenantHref, useMe, useTenantSeen, type Me } from "./chrome.tsx";
 
 /**
- * dashboards: the server answers /api/dashboards (TRAILBEAM_DASHBOARDS is on), so Dashboards is an item. alerts: it
- * answers /api/alerts (TRAILBEAM_ALERT_CHECK is on), so Alerts is one.
+ * dashboards: the server has /api/dashboards on (TRAILBEAM_DASHBOARDS), so Dashboards is an item. alerts: it has
+ * /api/alerts on (TRAILBEAM_ALERT_CHECK), so Alerts is one.
  */
 export function shellItems(me: Me | null, path: string, dashboards = false, alerts = false): SidebarItem[][] {
   const pages: SidebarItem[] = [
@@ -25,7 +25,7 @@ export function shellItems(me: Me | null, path: string, dashboards = false, aler
     ...(dashboards ? [{ href: "/dashboards", label: "Dashboards", icon: LayoutDashboard }] : []),
     { href: "/", label: "Messages", icon: Search, on: path === "/" || path === "/message" },
     { href: "/duplicates", label: "Duplicates", icon: Copy },
-    { href: "/stuck", label: "Stuck", icon: CircleAlert },
+    { href: "/issues", label: "Issues", icon: CircleAlert },
     { href: "/tenants", label: "Tenants", icon: Users },
     ...(alerts ? [{ href: "/alerts", label: "Alerts", icon: Bell }] : []),
   ];
@@ -38,22 +38,9 @@ export function shellItems(me: Me | null, path: string, dashboards = false, aler
   return manage.length ? [pages, manage] : [pages];
 }
 
-const asked = new Map<string, Promise<boolean>>();
-/** Whether this server answers an API path (a feature it has on): asked once per page load, without the sign-in redirect a failed read makes. */
-const isOn = (path: string) => {
-  let p = asked.get(path);
-  if (!p) asked.set(path, p = fetch(path, { headers: { Accept: "application/json" } }).then((r) => r.ok, () => false));
-  return p;
-};
-function useOn(path: string): boolean {
-  const [on, setOn] = useState(false);
-  useEffect(() => {
-    let live = true;
-    isOn(path).then((v) => { if (live) setOn(v); });
-    return () => { live = false; };
-  }, [path]);
-  return on;
-}
+/** Whether this server has an off-by-default part on, as /api/me says (QV-766): asking the part's routes instead
+    made a 404, a red console error, on every page of a default install. Off until /api/me is read. */
+export const featureOn = (me: Me | null, name: keyof NonNullable<Me["features"]>) => me?.features?.[name] ?? false;
 
 export const shellQueueHref = (name: string) => `/queue?name=${encodeURIComponent(name)}`;
 
@@ -92,8 +79,8 @@ export function ShellAccount({ me }: { me: Me | null }) {
 export function ShellFrame({ path, queues, children }: { path: string; queues?: { name: string; health?: string | null }[]; children: ReactNode }) {
   const me = useMe();
   // on the Dashboards or Alerts page itself the item shows at once
-  const dashboards = useOn("/api/dashboards") || path === "/dashboards";
-  const alerts = useOn("/api/alerts/rules") || path === "/alerts";
+  const dashboards = featureOn(me, "dashboards") || path === "/dashboards";
+  const alerts = featureOn(me, "alerts") || path === "/alerts";
   const list: SidebarQueue[] | undefined = queues?.map((q) => ({ ...q, href: shellQueueHref(q.name) }));
   return (
     <AppThemeProvider className="flex min-h-screen bg-canvas font-sans text-ink">
