@@ -63,7 +63,7 @@ export function EventsPage() {
   const [live, setLive, tick] = useRefresh(new URLSearchParams(location.search).get("refresh") !== "0");
   const following = live && !!time.preset;
   const [state, setState] = useState<State>({ kind: "loading" });
-  useEffect(() => { document.title = "Event explorer · Trailbeam"; }, []);
+  useEffect(() => { document.title = "Event explorer, Trailbeam"; }, []);
 
   // each refresh moves a range that ends now up to the clock
   useEffect(() => { if (tick && following) setTime((t) => follow(t, Date.now())); }, [tick]);

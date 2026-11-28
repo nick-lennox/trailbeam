@@ -131,7 +131,7 @@ function useEnv(data: EventData, liveRefresh?: DashboardsEnv["liveRefresh"]): Da
 function ListPage() {
   const [state, setState] = useState<State<{ dashboards: ApiDashboard[]; alerts: ServerAlerts["states"] }>>({ kind: "loading" });
   useEffect(() => {
-    document.title = "Dashboards · Trailbeam";
+    document.title = "Dashboards, Trailbeam";
     const now = Date.now();
     getJSON<{ dashboards: ApiDashboard[] }>("/api/dashboards")
       .then(async ({ dashboards }) => {
@@ -172,7 +172,7 @@ function OnePage({ id }: { id: string }) {
 
   useEffect(() => {
     getJSON<{ dashboard: ApiDashboard }>(D(id))
-      .then(({ dashboard }) => { document.title = `${dashboard.name} · Trailbeam`; setState({ kind: "ok", value: dashboard }); load(dashboard); })
+      .then(({ dashboard }) => { document.title = `${dashboard.name}, Trailbeam`; setState({ kind: "ok", value: dashboard }); load(dashboard); })
       .catch((e) => setState({ kind: "error", message: problem(e) }));
   }, [id, load]);
 

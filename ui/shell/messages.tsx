@@ -258,7 +258,7 @@ export function MessagesPanel({ embedded = false, on = MESSAGES_PAGE, header }: 
 }
 
 export function MessagesPage() {
-  useEffect(() => { document.title = "Messages · Trailbeam"; }, []);
+  useEffect(() => { document.title = "Messages, Trailbeam"; }, []);
   return <ShellFrame path="/"><MessagesPanel /></ShellFrame>;
 }
 

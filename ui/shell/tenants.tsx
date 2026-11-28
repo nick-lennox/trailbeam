@@ -30,7 +30,7 @@ export function TenantsPage() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [copied, setCopied] = useState("");
   useEffect(() => {
-    document.title = "Tenants · Trailbeam";
+    document.title = "Tenants, Trailbeam";
     getJSON<TenantStats>(`/api/tenants?since_s=${range[0]}`)
       .then(async (s) => {
         const storeEmpty = s.rows.length === 0 && s.total_sent === 0 ? await getHealth(5000).then(storeIsEmpty, () => false) : false;

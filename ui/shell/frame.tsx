@@ -107,6 +107,6 @@ export function ShellSearch() {
   return (
     <MessageSearch action="/message" name="id" suggest={tenantSeen ? suggest : undefined}
       go={(q) => shellSearchHref(q, last.current)}
-      placeholder={tenantSeen ? "Find a message by ID, or a tenant" : "Find a message by ID"} />
+      placeholder={tenantSeen ? "Find a message by its ID or a tenant" : "Find a message by its ID"} />
   );
 }

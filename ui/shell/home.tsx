@@ -89,7 +89,7 @@ function FirstRunPage({ health }: { health: Health }) {
   const [runtime, setRuntime] = useState<Runtime>(savedRuntime);
   const pick = (r: Runtime) => { setRuntime(r); try { localStorage.setItem(RUNTIME_KEY, r); } catch { /* private mode */ } };
   const received = status.kind === "received";
-  useEffect(() => { document.title = received ? "Trailbeam" : "Get started · Trailbeam"; }, [received]);
+  useEffect(() => { document.title = received ? "Trailbeam" : "Get started, Trailbeam"; }, [received]);
   return (
     <ShellFrame path="/">
       <TopBar search={<ShellSearch />} />

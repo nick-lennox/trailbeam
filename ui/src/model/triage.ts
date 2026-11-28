@@ -88,7 +88,7 @@ export function failuresAfter(row: TriageRow, arrivals: readonly Arrival[] | und
 
 /**
   The state a cause is in now (design §8.4): the stored row, with an ignore whose time is up or whose count is reached
-  read as open, and a resolved cause with a failure after the resolve read as Open · Regressed. The page never shows a
+  read as open, and a resolved cause with a failure after the resolve read as Open and Regressed. The page never shows a
   stale state, even when nothing has written the change yet. With no row, the cause is open and nobody has it.
   `group` is the cause as read now (its arrivals count the failures since), or null when it has no unfinished messages.
 */
@@ -249,10 +249,10 @@ function inTime(ms: number, nowMs: number): string {
 export const ignoreText = (s: number) => (s === 3600 ? "1 h" : s === 86_400 ? "24 h" : `${s / 86_400} days`);
 export const notesText = (n: number) => (n ? `${n} ${n === 1 ? "note" : "notes"}` : "");
 
-/** The status tag, when there is one: Resolved, Resolved · next version, Ignored until 18:00, Ignored. */
+/** The status tag, when there is one: Resolved, Resolved, for the next version, Ignored until 18:00, Ignored. */
 export function statusTag(t: Triage, nowMs: number): { word: string; tone: "ok" | "muted" | "critical" } | null {
   if (t.regressed && t.status === "open") return { word: "Regressed", tone: "critical" };
-  if (t.status === "resolved") return { word: t.mode === "next_version" ? "Resolved · next version" : "Resolved", tone: "ok" };
+  if (t.status === "resolved") return { word: t.mode === "next_version" ? "Resolved, for the next version" : "Resolved", tone: "ok" };
   if (t.status === "ignored") return { word: t.until !== null ? `Ignored until ${atClock(t.until, nowMs)}` : t.more !== null ? `Ignored for ${t.more} more` : "Ignored", tone: "muted" };
   return null;
 }
@@ -284,7 +284,7 @@ export function controlAria(label: string, t: Triage, p: People, nowMs: number):
 
 /**
   The cause panel's status line (design §4.3): the status, the assignee, then the last thing that changed it.
-  "Open · Nobody assigned." "Resolved by Ana 2 h ago · Assigned to Sam." "Ignored by Ana until 18:00 (in 3 h)."
+  "Open. Nobody assigned." "Resolved by Ana 2 h ago. Assigned to Sam." "Ignored by Ana until 18:00 (in 3 h). Nobody assigned."
 */
 export function statusLine(t: Triage, p: People, nowMs: number): string {
   const by = who(t.statusBy, p);
@@ -292,24 +292,24 @@ export function statusLine(t: Triage, p: People, nowMs: number): string {
   if (t.status === "resolved") {
     const when = t.statusAt !== null ? ` ${whenAgo(t.statusAt, nowMs)}` : "";
     const how = t.mode === "next_version" && t.versions.length ? `, in a new version: failures on ${t.versions.join(", ")} won't count against it` : "";
-    return `Resolved by ${by}${when}${how} · ${assigned}.`;
+    return `Resolved by ${by}${when}${how}. ${assigned}.`;
   }
   if (t.status === "ignored") {
     const how = t.until !== null ? `until ${atClock(t.until, nowMs)} (${inTime(t.until, nowMs)})`
       : t.more !== null ? `until ${t.more} more messages: ${t.seen ?? 0} so far`
       : `${t.statusAt !== null ? `${whenAgo(t.statusAt, nowMs)}, ` : ""}until someone takes it off`;
-    return `Ignored by ${by} ${how} · ${assigned}.`;
+    return `Ignored by ${by} ${how}. ${assigned}.`;
   }
-  if (t.ended) return `Open · ${assigned}. Its ignore ended ${whenAgo(t.ended.at, nowMs)}${t.ended.why === "count" ? `, after ${t.ended.more} more messages` : ""}.`;
+  if (t.ended) return `Open. ${assigned}. Its ignore ended ${whenAgo(t.ended.at, nowMs)}${t.ended.why === "count" ? `, after ${t.ended.more} more messages` : ""}.`;
   if (t.regressed && t.regressedAt !== null) {
     const resolved = t.statusBy !== null || t.statusAt !== null ? `Resolved by ${by}${t.statusAt !== null ? ` ${whenAgo(t.statusAt, nowMs)}` : ""}, regressed` : "Regressed";
-    return `Open · ${assigned} · ${resolved} ${atClock(t.regressedAt, nowMs)}${t.regressedVersion ? ` in ${t.regressedVersion}` : ""}.`;
+    return `Open. ${assigned}. ${resolved} ${atClock(t.regressedAt, nowMs)}${t.regressedVersion ? ` in ${t.regressedVersion}` : ""}.`;
   }
-  return `Open · ${assigned}.`;
+  return `Open. ${assigned}.`;
 }
 
 /**
-  The message page's cause line additions (design §4.5): "Resolved by Ana · Sam is on it · 3 notes". Open is left
+  The message page's cause line additions (design §4.5): "Resolved by Ana, Sam is on it, 3 notes". Open is left
   out, so an open, unassigned cause with no notes adds nothing.
 */
 export function messageLine(t: Triage, p: People, nowMs: number): string {
@@ -319,7 +319,7 @@ export function messageLine(t: Triage, p: People, nowMs: number): string {
   if (t.status === "ignored") parts.push(t.until !== null ? `Ignored until ${atClock(t.until, nowMs)}` : t.more !== null ? `Ignored for ${t.more} more` : "Ignored");
   if (t.assignee) parts.push(t.assignee === p.me ? "You're on it" : `${personName(t.assignee, p)} is on it`);
   if (t.notes) parts.push(notesText(t.notes));
-  return parts.join(" · ");
+  return parts.join(", ");
 }
 
 /* ── the thread (design §4.3, §5) ─────────────────────────────────────── */

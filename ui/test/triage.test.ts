@@ -56,15 +56,15 @@ const P: People = { me: "me", names: { me: "Kim", ana: "Ana", sam: "Sam", gone: 
 const t = (o: Partial<Triage>): Triage => ({ ...OPEN, ...o });
 
 test("the status words", () => {
-  assert.equal(statusLine(t({}), P, NOW), "Open · Nobody assigned.");
-  assert.equal(statusLine(t({ status: "resolved", statusBy: "ana", statusAt: NOW - 2 * 3_600_000, assignee: "sam" }), P, NOW), "Resolved by Ana 2 h ago · Assigned to Sam.");
-  assert.equal(statusLine(t({ status: "ignored", statusBy: "me", more: 10, seen: 3 }), P, NOW), "Ignored by you until 10 more messages: 3 so far · Nobody assigned.");
+  assert.equal(statusLine(t({}), P, NOW), "Open. Nobody assigned.");
+  assert.equal(statusLine(t({ status: "resolved", statusBy: "ana", statusAt: NOW - 2 * 3_600_000, assignee: "sam" }), P, NOW), "Resolved by Ana 2 h ago. Assigned to Sam.");
+  assert.equal(statusLine(t({ status: "ignored", statusBy: "me", more: 10, seen: 3 }), P, NOW), "Ignored by you until 10 more messages: 3 so far. Nobody assigned.");
   assert.equal(statusTag(t({ status: "open", regressed: true }), NOW)?.word, "Regressed");
   assert.equal(statusTag(t({ status: "ignored", more: 100 }), NOW)?.word, "Ignored for 100 more");
   assert.equal(statusTag(t({}), NOW), null);
   assert.equal(regressionText(t({ regressed: true, regressedAt: NOW, regressedCount: 4, statusBy: "ana" }), P, NOW).replace(/\d\d:\d\d/, "HH:MM"),
     "Regressed HH:MM: 4 new failures after Ana resolved it.");
-  assert.equal(messageLine(t({ status: "resolved", statusBy: "me", assignee: "gone", notes: 1 }), P, NOW), "Resolved by you · Lee (left) is on it · 1 note");
+  assert.equal(messageLine(t({ status: "resolved", statusBy: "me", assignee: "gone", notes: 1 }), P, NOW), "Resolved by you, Lee (left) is on it, 1 note");
   assert.equal(controlAria("billing timed out", t({ assignee: "me" }), P, NOW), "billing timed out: assigned to you. Triage.");
   assert.equal(hiddenText(2, 1), "2 resolved and 1 ignored causes aren't shown.");
   assert.equal(hiddenText(0, 0), "");

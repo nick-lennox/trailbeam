@@ -122,7 +122,7 @@ export function OverviewPage() {
   last.current = state;
 
   useEffect(() => {
-    document.title = "Overview · Trailbeam";
+    document.title = "Overview, Trailbeam";
     getHealth(5000).then((h) => {
       setKeptMs(retentionMs(h.config?.retention?.default));
       if (storeIsEmpty(h)) setState({ kind: "empty-store" });

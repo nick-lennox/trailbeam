@@ -115,7 +115,7 @@ test("the top bar's search: a GET form to the host's search, with the host's par
   const hosted = renderToStaticMarkup(createElement(MessageSearch, { action: "/app/acme/messages" }));
   assert.match(hosted, /^<form role="search" [^>]*action="\/app\/acme\/messages"/);
   assert.match(hosted, /name="q"/);
-  assert.match(hosted, /placeholder="Find a message by ID, trace ID, or a tenant"/);
+  assert.match(hosted, /placeholder="Find a message by its ID, a trace ID or a tenant"/);
   const shell = renderToStaticMarkup(createElement(MessageSearch, { action: "/message", name: "id", placeholder: "Find a message by ID" }));
   assert.match(shell, /action="\/message"/);
   assert.match(shell, /name="id"/);

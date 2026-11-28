@@ -56,7 +56,7 @@ export function TokensPage() {
   const ingest = useTokens<IngestTokenList>("ingest", admin);
   const mine = useTokens<{ tokens: PersonalToken[] }>("personal", person !== null);
   const [shown, setShown] = useState<Shown | null>(null);
-  useEffect(() => { document.title = "Tokens · Trailbeam"; }, []);
+  useEffect(() => { document.title = "Tokens, Trailbeam"; }, []);
 
   type Create = (r: NewTokenRequest) => Promise<NewToken<{ name: string }>>;
   const onCreate = (kind: TokenKind, create: Create) => async (r: NewTokenRequest) => {
