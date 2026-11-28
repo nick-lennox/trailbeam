@@ -1,10 +1,11 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronRight, CircleAlert, CircleCheck } from "lucide-react";
+import { ChevronRight, CircleAlert, CircleCheck, Inbox } from "lucide-react";
 import { PlatformIcon } from "../design/icons.tsx";
 import { TopBar, type Fresh } from "../design/TopBar.tsx";
 import { HealthPill } from "../design/pills.tsx";
+import { SystemBadge } from "../design/SystemBadge.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { MiddleTruncate } from "../design/MiddleTruncate.tsx";
 import { UiLink, useNav } from "../design/nav.tsx";
@@ -124,14 +125,17 @@ export function healthHeading(queues: number, judged: number, troubled: number):
  * The figure on the flow map's DLQ node, with its note. On recorded data: the messages in the dead-letter queue now
  * when AWS said, else the receives on it in the range (all the spans can count). On the sample: the dead-lettered.
  */
-export function dlqNodeCount(o: { real: boolean; queue: string; dlq: string; depth: number | null; received: number; moved: number; range: string }): { n: number; note: string } {
+export function dlqNodeCount(o: { real: boolean; queue: string; dlq: string; depth: number | null; received: number; moved: number; range: string; rabbit?: boolean }): { n: number; note: string } {
   if (!o.real) return { n: o.moved, note: `Messages from ${o.queue} dead-lettered in ${o.range}` };
   const moved = ` ${fmtNum(o.moved)} ${o.moved === 1 ? "message" : "messages"} moved to it in ${o.range}.`;
+  if (o.rabbit) return { n: o.received, note: `Deliveries on ${o.dlq} in ${o.range} to your services whose x-death header names ${o.queue}.${moved}` };
   if (o.depth != null) return { n: o.depth, note: `Messages in ${o.dlq} now, from CloudWatch.${moved}` };
   return { n: o.received, note: `Receives on ${o.dlq} in ${o.range} by your services that SQS marked as coming from ${o.queue}.${moved}` };
 }
 
 const NoData = () => <span className="font-sans font-normal text-ink-3">No data</span>;
+/* A RabbitMQ queue's card (QV-308): Trailbeam reads nothing from the broker, so its figures are the spans'. */
+export const RABBITMQ_NO_FIGURES = "Trailbeam makes no calls to RabbitMQ, so it can't see this queue's depth or its settings. Its figures here are from your services' spans.";
 /* A word where a figure would be ("None", "Default"), in a mono cell: words are in sans. */
 const Word = ({ children }: { children: ReactNode }) => <span className="font-sans">{children}</span>;
 /* A figure only CloudWatch has, for a queue CloudWatch has not published yet. */
@@ -301,6 +305,8 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
   const info = data?.info[q.name];
   const lv = info?.live;
   const aws = lv?.status === "ok";
+  const rabbit = q.system === "rabbitmq";
+  const noFigures = rabbit ? RABBITMQ_NO_FIGURES : copy.noFigures(lv);
   const cfg: { visibilityTimeoutS: number | null; maxReceiveCount: number | null; dlq: string | null; retentionDays: number | null } =
     data ? { visibilityTimeoutS: lv?.visibilityTimeoutS ?? null, maxReceiveCount: lv?.maxReceiveCount ?? null, dlq: lv?.dlq ?? seenDlq?.name ?? null,
       retentionDays: lv?.retentionS ? Math.round((lv.retentionS / 86_400) * 10) / 10 : null } : sample.settings[q.name];
@@ -327,7 +333,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
   const dead = data ? (info?.moved ?? 0) : flow.bad.filter((c) => c.outcome === "dead_lettered").reduce((a, c) => a + c.n, 0);
   const dlqDepth = lv?.dlq ? lv.dlqDepth : null;
   const dlqBad = data ? dead > 0 || (info?.dlqChange ?? 0) > 0 : dead > 0;
-  const dlqCount = dlqNodeCount({ real, queue: q.name, dlq: cfg.dlq ?? "", depth: dlqDepth, received: info?.dlqReceives ?? seenDlq?.received ?? 0, moved: dead, range: range.long });
+  const dlqCount = dlqNodeCount({ real, queue: q.name, dlq: cfg.dlq ?? "", depth: dlqDepth, received: info?.dlqReceives ?? seenDlq?.received ?? 0, moved: dead, range: range.long, rabbit });
   /* the Lambda triggers on the queue; the consumer's own, when its service name is its function's name */
   const triggers = info?.triggers ?? null;
   const mine = !!triggers?.some((t) => t.functionName === con.name);
@@ -477,8 +483,9 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                   className={`w-full cursor-pointer rounded-card border bg-surface shadow-raised transition-[border-color,box-shadow] duration-150 ${part.kind === "queue" ? "border-accent shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_18%,transparent)]" : "border-line-strong hover:border-ink-3"}`}
                 >
                   <div className="flex items-center gap-2.5 px-4 pt-3.5">
-                    <PlatformIcon platform="SQS" size={18} />
+                    {!rabbit && <PlatformIcon platform="SQS" size={18} />}
                     <h3 className="min-w-0 truncate text-[15px] font-medium text-ink"><Tooltip content={q.name}><UiLink href={queuePage} onClick={(e) => e.stopPropagation()} className="hover:underline">{q.name}</UiLink></Tooltip></h3>
+                    {rabbit && <SystemBadge system="rabbitmq" />}
                     <span className="ml-auto shrink-0">{real ? (info?.health ? (info.healthBasis === "spans"
                       ? <span className="inline-flex items-center gap-1.5"><HealthPill health={info.health} label={info.why ?? undefined} /><Tooltip content={SPAN_HEALTH_NOTE} className="rounded border border-line px-1 text-micro text-ink-3">spans</Tooltip></span>
                       : <HealthPill health={info.health} label={info.why ?? undefined} />) : <span className="text-xs text-ink-3">No health data</span>) : <HealthPill health={q.health} />}</span>
@@ -497,7 +504,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                     <div>
                       <p className="text-xs text-ink-3">Not finished</p>
                       <p className={`mt-0.5 font-mono text-[17px] font-medium tabular-nums ${flow.n ? OUTCOME_TEXT[flow.bad[0].outcome] : "text-ink"}`}>{real
-                        ? <Tooltip content="Messages from your services first seen over 5 minutes ago with no final delete, including those moved to the dead-letter queue: the sum of the causes listed for this queue" className="cursor-default">{fmtNum(flow.n)}</Tooltip>
+                        ? <Tooltip content={`Messages from your services first seen over 5 minutes ago with no final ${rabbit ? "ack" : "delete"}, including those moved to the dead-letter queue: the sum of the causes listed for this queue`} className="cursor-default">{fmtNum(flow.n)}</Tooltip>
                         : fmtNum(flow.n)}</p>
                     </div>
                   </div>
@@ -515,11 +522,13 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                   </dl>
                   ) : (
                     <div className="mt-4 border-t border-line px-4 py-3.5 text-xs">
-                      <p className="leading-relaxed text-ink-3">{copy.noFigures(lv)}</p>
+                      <p className="leading-relaxed text-ink-3">{noFigures}</p>
+                      {!rabbit && (
                       <div className="mt-2 flex items-baseline justify-between gap-3">
                         <span className="text-ink-3">Type</span>
                         <span className="font-mono text-[12.5px] text-ink">{q.type}</span>
                       </div>
+                      )}
                     </div>
                   )}
                   {real && slots.queueFacts?.(q.name)}
@@ -539,7 +548,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                   ) : (
                     <button key="dlq" {...node({ kind: "dlq" }, dlqBad ? "bad" : "ok")} style={{ top: y(i, rights.length) }}>
                       <span className="flex h-full items-center gap-2.5">
-                        <span className="grid size-8 shrink-0 place-items-center rounded-md border border-line bg-canvas"><PlatformIcon platform="SQS" size={18} /></span>
+                        <span className="grid size-8 shrink-0 place-items-center rounded-md border border-line bg-canvas">{rabbit ? <Inbox size={16} className="text-ink-3" aria-hidden /> : <PlatformIcon platform="SQS" size={18} />}</span>
                         <span className="min-w-0 flex-1">
                           <span className="block text-xs text-ink-3">DLQ</span>
                           <Tooltip content={cfg.dlq} className="block text-sm font-medium text-ink"><MiddleTruncate text={cfg.dlq ?? ""} /></Tooltip>
@@ -640,9 +649,13 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                   <Fact k={`Change in ${range.long}`}>{info?.dlqChange === null || info?.dlqChange === undefined ? <NoData /> : <span className={info.dlqChange > 0 ? "text-critical-text" : ""}>{info.dlqChange > 0 ? "+" : ""}{fmtNum(info.dlqChange)}</span>}</Fact>
                   <Fact k={`Moved in ${range.long}`}><span className={dead ? "text-critical-text" : ""}>{fmtNum(dead)}</span></Fact>
                   <Fact k={`Received on it in ${range.long}`}>{fmtNum(info?.dlqReceives ?? seenDlq?.received ?? 0)}</Fact>
+                  {rabbit ? <Fact k="x-delivery-limit">{cfg.maxReceiveCount ?? <NoData />}</Fact> : (
+                  <>
                   <Fact k="maxReceiveCount">{cfg.maxReceiveCount ?? <NoData />}</Fact>
                   <Fact k="Visibility timeout">{cfg.visibilityTimeoutS === null ? <NoData /> : `${cfg.visibilityTimeoutS} s`}</Fact>
                   <Fact k="Message retention">{cfg.retentionDays === null ? <NoData /> : `${cfg.retentionDays} ${cfg.retentionDays === 1 ? "day" : "days"}`}</Fact>
+                  </>
+                  )}
                 </dl>
                 ) : (
                 <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
@@ -653,7 +666,13 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                 </dl>
                 )}
                 <p className="mt-4 text-sm text-ink-2">
-                  {real
+                  {real && rabbit
+                    ? <>
+                        Known because a delivery on {cfg.dlq} carried an x-death header naming {q.name}. {noFigures}
+                        {" "}RabbitMQ dead-letters a message when a consumer refuses it (requeue = false), its time to live runs out, the queue is over its length limit, or it is returned to the queue more times than x-delivery-limit allows.
+                        {(info?.dlqReceives ?? 0) > 0 && ` Received on it counts deliveries from ${cfg.dlq} to your services whose x-death header names ${q.name}.`}
+                      </>
+                    : real
                     ? <>
                         {lv?.dlq ? `${q.name}'s redrive policy names ${cfg.dlq}. Its depth is CloudWatch's ApproximateNumberOfMessagesVisible for ${cfg.dlq}.` : `Known because a receive on ${cfg.dlq} carried DeadLetterQueueSourceArn naming ${q.name}. ${copy.noFigures(lv)}`}
                         {" "}AWS does not log a move to a dead-letter queue. Moved counts the messages your services received {cfg.maxReceiveCount ?? "maxReceiveCount"} times without deleting them once the last visibility timeout ran out, since SQS moves such a message instead of letting it be received again.

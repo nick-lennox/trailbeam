@@ -15,6 +15,13 @@ import { ORDER_SOURCE_RABBITMQ } from "../src/timeline/words.ts";
 import { eventName, eventsOfTimeline, kindName, queryLanguage, type Ev, type SpanMeta } from "../src/model/index.ts";
 import { cellText, filledColumns } from "../src/explorer/columns.ts";
 import { EventExplorer } from "../src/explorer/index.ts";
+import { overviewData } from "../src/model/overview.ts";
+import { dlqNodeCount, OverviewFlows, RABBITMQ_NO_FIGURES, type OverviewCopy, type OverviewFlowsData, type OverviewFlowsHrefs } from "../src/now/OverviewFlows.tsx";
+import type { Flow } from "../src/queue/selfhosted.ts";
+import { FirstRun } from "../src/design/index.ts";
+import { lookupEmpty, stuckEmpty } from "../src/messages/empty.tsx";
+import { MESSAGE_COLUMNS, messageLevel, type MessageRow } from "../src/messages/columns.tsx";
+import { rabbitKeyOf } from "../shell/message.tsx";
 
 const load = (f: string) => JSON.parse(readFileSync(new URL(`./fixtures/${f}`, import.meta.url), "utf8")) as { timelines: Timeline[]; items?: Record<string, unknown>[] };
 const amqp = load("amqp-timelines.json");
@@ -178,4 +185,70 @@ test("the Event explorer lists RabbitMQ events with their badge, methods and kin
   assert.doesNotMatch(words, /ReceiveMessage|DeleteMessage|SendMessage|Visibility timeout expired/);
   assert.doesNotMatch(html, / title="|[→←↗↑×]|uppercase|tracking-/);
   assert.doesNotMatch(words, / · |—| – /);
+});
+
+/* ── the Overview ───────────────────────────────────────────────────── */
+
+test("the Overview marks a RabbitMQ queue with its badge and words, and draws an SQS queue as before", () => {
+  const flows = (amqp as unknown as { flows: Flow[] }).flows;
+  const d = overviewData("local", "1h", 60, flows, {}, parity.toMs) as OverviewFlowsData;
+  assert.ok(d.queues.length >= 5 && d.queues.every((q) => q.system === "rabbitmq"));
+  const copy: OverviewCopy = { noHealth: (n) => `${n} queues`, spansOnly: "", noFigures: () => "Trailbeam makes no AWS calls." };
+  const hrefs: OverviewFlowsHrefs = { range: (id) => `/?range=${id}`, queue: ({ name }) => `/queues/${name}`, issues: (q) => `/issues?queue=${q}`, cause: () => "/issues",
+    events: (q) => `/events?q=${encodeURIComponent(q)}`, deadLettered: () => "/dlq", message: (id) => `/messages/${id}` };
+  const html = renderToStaticMarkup(h(OverviewFlows, { data: d, copy, hrefs }));
+  const words = text(html);
+  assert.match(html, /data-system="rabbitmq"[^>]*>RabbitMQ</);
+  assert.ok(words.includes(RABBITMQ_NO_FIGURES));
+  assert.doesNotMatch(words, /SQS|AWS calls|Visibility timeout|maxReceiveCount|Standard/);
+  assert.doesNotMatch(html, / title="|[→←↗↑×]|uppercase|tracking-/);
+  assert.doesNotMatch(words, / · |—| – /);
+  // the DLQ node's note, for a RabbitMQ queue: the x-death header, not SQS
+  assert.equal(dlqNodeCount({ real: true, queue: "orders", dlq: "orders.dlq", depth: null, received: 2, moved: 1, range: "the past hour", rabbit: true }).note,
+    "Deliveries on orders.dlq in the past hour to your services whose x-death header names orders. 1 message moved to it in the past hour.");
+  // an SQS flow has no system
+  const sqsFlow = { ...flows[0], key: "https://sqs.us-east-1.amazonaws.com/111122223333/orders", url: "https://sqs.us-east-1.amazonaws.com/111122223333/orders" };
+  assert.equal(overviewData("local", "1h", 60, [sqsFlow], {}, parity.toMs).queues[0].system, undefined);
+});
+
+/* ── first run and empty states ─────────────────────────────────────── */
+
+test("the first-run screen sets up RabbitMQ: pika or amqplib, a publish with a message_id, in RabbitMQ's words", () => {
+  const props = { endpoint: "http://127.0.0.1:4318/v1/traces", auth: "off" as const, status: { kind: "waiting", checkedAgoS: 1, hidden: false } as never, version: "0.5.0", onRuntime: () => {} };
+  for (const runtime of ["python", "node"] as const) {
+    const html = renderToStaticMarkup(h(FirstRun, { ...props, runtime, system: "rabbitmq" }));
+    const words = text(html);
+    assert.match(words, /Send your first RabbitMQ message to Trailbeam/);
+    assert.match(words, /Publish one message/);
+    assert.match(words, runtime === "python" ? /trailbeam\[pika\].*pika 1\.3 or later.*trailbeam\.pika\.install\(\).*message_id= ?"first-message"/ : /npm install trailbeam amqplib.*amqplib 0\.10\.6 or later.*trailbeam\.amqplib\.install\(\).*messageId: ?"first-message"/);
+    assert.doesNotMatch(words, /SQS call|boto3|client-sqs|SendMessage|Queue URL|queue URL/);
+    assert.match(html, /role="tab" aria-selected="true"[^>]*>RabbitMQ</);
+    assert.doesNotMatch(html, / title="|[→←↗↑×]|uppercase|tracking-/);
+    assert.doesNotMatch(words, / · |—| – /);
+  }
+  // SQS is the default, and its setup is SQS's
+  const sqsWords = text(renderToStaticMarkup(h(FirstRun, { ...props, runtime: "python" })));
+  assert.match(sqsWords, /Send your first SQS message to Trailbeam .*Make one SQS call/);
+  assert.match(sqsWords, /Amazon SQS RabbitMQ/, "the switch");
+});
+
+test("a RabbitMQ message's bare ID opens it under its key; the empty states name RabbitMQ's terms", () => {
+  assert.equal(rabbitKeyOf("m-fan"), "~rabbitmq~m-fan");
+  assert.equal(rabbitKeyOf("~rabbitmq~m-fan"), null);
+  assert.equal(rabbitKeyOf(""), null);
+  const words = (e: { title: unknown; detail?: unknown }) => text(renderToStaticMarkup(h("div", null, e.title as never, e.detail as never)));
+  assert.match(words(lookupEmpty("m-x", false)), /message_id property its publisher set/);
+  assert.match(words(stuckEmpty(300, false)), /or on RabbitMQ an ack/);
+});
+
+test("the Messages list shows a RabbitMQ message's ID as set, with its badge and RabbitMQ's state", () => {
+  const items = (amqp.items ?? []) as unknown as MessageRow[];
+  const col = (id: string) => MESSAGE_COLUMNS.find((c) => c.id === id)!;
+  const fan = items.find((m) => m.message_id === "~rabbitmq~m-fan")!;
+  const cell = renderToStaticMarkup(h("div", null, col("message_id").cell(fan)));
+  assert.match(cell, />m-fan<.*data-system="rabbitmq"[^>]*>RabbitMQ</);
+  assert.equal(col("message_id").text(fan), "m-fan");
+  assert.equal(col("state").text(fan), "Done");
+  assert.equal(col("state").text(items.find((m) => m.message_id === "~rabbitmq~m-stuck")!), "No ack seen");
+  assert.equal(messageLevel(items.find((m) => m.message_id === "~rabbitmq~m-loop")!).word, "Delivered more than once");
 });

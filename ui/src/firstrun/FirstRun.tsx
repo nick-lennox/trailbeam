@@ -12,7 +12,8 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode,
 import { Button } from "../design/Button.tsx";
 import { NightWindow } from "../design/NightWindow.tsx";
 import { announcement, isDefaultEndpoint, type FirstRunStatus } from "./status.ts";
-import { EXAMPLE, INSTALL, RUNTIMES, environment, type Runtime } from "./text.ts";
+import { EXAMPLE, EXAMPLE_RABBITMQ, INSTALL, INSTALL_RABBITMQ, NEEDS_RABBITMQ, RUNTIMES, environment, type Runtime } from "./text.ts";
+import { RABBITMQ, SQS, SYSTEM_NAME, type MessagingSystem } from "../systems.ts";
 
 const REPO = "https://github.com/nick-lennox/trailbeam";
 const LINKS = {
@@ -193,27 +194,58 @@ export type FirstRunProps = {
   onRuntime: (r: Runtime) => void;
   /** set when retention emptied the store: how long it keeps spans ("7 days"); the setup starts collapsed */
   retainedFor?: string | null;
+  /** the messaging system the setup is for (QV-308): Amazon SQS by default, or RabbitMQ; kept by the view when the host leaves it out */
+  system?: MessagingSystem;
+  onSystem?: (s: MessagingSystem) => void;
 };
 
-export function FirstRun({ endpoint, auth, status, version, runtime, onRuntime, retainedFor = null }: FirstRunProps) {
+/** Amazon SQS or RabbitMQ: the setup's code and words follow it. Drawn as RuntimeSwitch is, with the same keys. */
+const SYSTEMS = [SQS, RABBITMQ] as const;
+function SystemSwitch({ system, onSystem, controls }: { system: MessagingSystem; onSystem: (s: MessagingSystem) => void; controls: string }) {
+  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
+  const key = (e: KeyboardEvent, i: number) => {
+    const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!d && e.key !== "Home" && e.key !== "End") return;
+    e.preventDefault();
+    const j = e.key === "Home" ? 0 : e.key === "End" ? SYSTEMS.length - 1 : (i + d + SYSTEMS.length) % SYSTEMS.length;
+    onSystem(SYSTEMS[j]);
+    tabs.current[j]?.focus();
+  };
+  return (
+    <div role="tablist" aria-label="Messaging system" className="flex w-full rounded-control border border-line bg-sunken p-0.5 text-sm md:w-auto">
+      {SYSTEMS.map((s, i) => (
+        <button key={s} ref={(el) => { tabs.current[i] = el; }} type="button" role="tab" aria-selected={s === system} aria-controls={controls}
+          tabIndex={s === system ? 0 : -1} onClick={() => onSystem(s)} onKeyDown={(e) => key(e, i)}
+          className={`flex-1 rounded-[calc(var(--radius-control)-2px)] px-3 py-1 md:flex-none ${s === system ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:text-ink"}`}>{SYSTEM_NAME[s]}</button>
+      ))}
+    </div>
+  );
+}
+
+export function FirstRun({ endpoint, auth, status, version, runtime, onRuntime, retainedFor = null, system: chosen, onSystem }: FirstRunProps) {
   const id = useId();
+  const [own, setOwn] = useState<MessagingSystem>(SQS);
+  const system = chosen ?? own;
+  const pickSystem = (s: MessagingSystem) => { setOwn(s); onSystem?.(s); };
+  const rabbit = system === RABBITMQ;
   const received = status.kind === "received";
   const [open, setOpen] = useState(!retainedFor && !received);
   useEffect(() => { if (received) setOpen(false); }, [received]);
   const [copied, setCopied] = useState("");
   const endpointRef = useRef<HTMLOutputElement>(null);
   const label = RUNTIMES.find((r) => r[0] === runtime)![1];
-  const example = EXAMPLE[runtime];
+  const example = (rabbit ? EXAMPLE_RABBITMQ : EXAMPLE)[runtime];
   const env = environment(endpoint, auth);
   const installId = `${id}-install`, exampleId = `${id}-example`;
 
   return (
     <div>
       <p className="text-xs font-medium text-ink-3">Get started</p>
-      <h1 className="mt-1 font-serif text-title-sm text-ink">{retainedFor ? `No spans in the last ${retainedFor}` : "Send your first SQS message to Trailbeam"}</h1>
+      <h1 className="mt-1 font-serif text-title-sm text-ink">{retainedFor ? `No spans in the last ${retainedFor}` : rabbit ? "Send your first RabbitMQ message to Trailbeam" : "Send your first SQS message to Trailbeam"}</h1>
       <p className="mt-2 max-w-[36rem] text-base leading-relaxed text-ink-2">
         {retainedFor
           ? `Trailbeam keeps spans for ${retainedFor} and has deleted older ones. New messages show up here as your services send them.`
+          : rabbit ? "Add the package to one service, point it here, and publish one message. The message shows up on this page by itself."
           : "Add the package to one service, point it here, and make one SQS call. The message shows up on this page by itself."}
       </p>
 
@@ -224,7 +256,7 @@ export function FirstRun({ endpoint, auth, status, version, runtime, onRuntime, 
         {!open && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line py-4 text-sm">
             <p className="min-w-0 text-ink-2">
-              <span className="font-medium text-ink">Setup</span> for {label}, sending to <span className="break-all font-mono text-caption text-ink">{endpoint}</span>
+              <span className="font-medium text-ink">Setup</span> for {label}{rabbit ? " with RabbitMQ" : ""}, sending to <span className="break-all font-mono text-caption text-ink">{endpoint}</span>
             </p>
             <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(true)} aria-expanded={false} className="ml-auto">
               {received ? "Show setup again" : "Show setup"}
@@ -233,10 +265,10 @@ export function FirstRun({ endpoint, auth, status, version, runtime, onRuntime, 
         )}
         <div className={`grid transition-[grid-template-rows] duration-[240ms] ease-out motion-reduce:transition-none ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`} inert={!open} aria-hidden={!open || undefined}>
           <div className="min-h-0 overflow-hidden">
-            <Row n="1" title="Install the package" aside={<RuntimeSwitch runtime={runtime} onRuntime={onRuntime} controls={`${installId} ${exampleId}`} />}>
-              <CodeWindow id={installId} caption="shell" code={INSTALL[runtime]} copyName="Copy the install command" onCopied={setCopied} />
+            <Row n="1" title="Install the package" aside={<span className="flex flex-wrap gap-2"><SystemSwitch system={system} onSystem={pickSystem} controls={`${installId} ${exampleId}`} /><RuntimeSwitch runtime={runtime} onRuntime={onRuntime} controls={`${installId} ${exampleId}`} /></span>}>
+              <CodeWindow id={installId} caption="shell" code={(rabbit ? INSTALL_RABBITMQ : INSTALL)[runtime]} copyName="Copy the install command" onCopied={setCopied} />
               <p className="mt-3 text-sm text-ink-2">
-                {runtime === "python" ? "Python 3.10 or later, with boto3." : <>Node.js 20 or later, with the AWS SDK v3 SQS client (<C>@aws-sdk/client-sqs</C>).</>}
+                {rabbit ? NEEDS_RABBITMQ[runtime] : runtime === "python" ? "Python 3.10 or later, with boto3." : <>Node.js 20 or later, with the AWS SDK v3 SQS client (<C>@aws-sdk/client-sqs</C>).</>}
               </p>
             </Row>
 
@@ -267,14 +299,22 @@ export function FirstRun({ endpoint, auth, status, version, runtime, onRuntime, 
               </p>
             </Row>
 
-            <Row n="3" title="Make one SQS call">
+            <Row n="3" title={rabbit ? "Publish one message" : "Make one SQS call"}>
               <p className="mt-2 max-w-[72ch] text-sm leading-relaxed text-ink-2">
-                Call <C>install</C> once, then use SQS as usual. A send is enough for a first message. A receive and a delete fill in the rest of its timeline.
+                {rabbit
+                  ? <>Call <C>install</C> once, then use RabbitMQ as usual. A publish is enough for a first message. A delivery and an ack fill in the rest of its timeline. Give each message a <C>message_id</C>: a message without one is counted but gets no timeline.</>
+                  : <>Call <C>install</C> once, then use SQS as usual. A send is enough for a first message. A receive and a delete fill in the rest of its timeline.</>}
               </p>
               <CodeWindow id={exampleId} caption={example.caption} code={example.code} copyName="Copy the example" onCopied={setCopied} />
+              {rabbit ? (
+              <p className="mt-2 max-w-[72ch] text-xs leading-relaxed text-ink-3">
+                Replace <C>&lt;host&gt;</C> and <C>&lt;queue&gt;</C> with your broker and a queue you can publish to. {runtime === "python" ? <>Spans go out in batches every few seconds, and any still waiting go out when the process exits.</> : <>In a long-running service you don&rsquo;t need <C>forceFlush</C>: spans go out in batches every few seconds.</>} The hooks make no broker calls of their own and never change a message.
+              </p>
+              ) : (
               <p className="mt-2 max-w-[72ch] text-xs leading-relaxed text-ink-3">
                 Replace <C>&lt;queue URL&gt;</C> with a queue you can send to. {runtime === "python" ? <>Spans go out in batches every few seconds, and any still waiting go out when the process exits.</> : <>In a long-running service you don&rsquo;t need <C>forceFlush</C>: spans go out in batches every few seconds.</>} On AWS Lambda, wrap the handler instead, as the <Ext href={LINKS.python}>Python</Ext> and <Ext href={LINKS.node}>Node.js</Ext> guides show.
               </p>
+              )}
             </Row>
 
             <p className="border-t border-line pt-4 text-xs text-ink-3">

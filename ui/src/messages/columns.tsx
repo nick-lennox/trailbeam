@@ -4,6 +4,8 @@
   out of the table and the column list, as the Event explorer leaves out its empty columns. A host adds its own
   columns at the end (Why on Duplicates, Age on Stuck).
 */
+import { SystemBadge } from "../design/SystemBadge.tsx";
+import { isRabbitMq, shownId } from "../systems.ts";
 import type { ReactNode } from "react";
 import { StatePill, purgeText, stateLook } from "../design/pills.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
@@ -40,7 +42,9 @@ const queueOf = (m: MessageRow) => m.current_queue || m.source_queue || "?";
 /** What the queue cell says after the name: in a dead-letter queue, or a move SQS should have made by now. */
 function queueNote(m: MessageRow): string {
   if (m.in_dead_letter_queue) return `dead-letter queue of ${m.source_queue || "?"}`;
-  if (m.dead_letter_queue_move === "not_seen_on_dlq_yet") return "reached maxReceiveCount; the move to the dead-letter queue isn't seen yet";
+  if (m.dead_letter_queue_move === "not_seen_on_dlq_yet") return isRabbitMq(m)
+    ? "passed x-delivery-limit; the move to a dead-letter queue isn't seen yet"
+    : "reached maxReceiveCount; the move to the dead-letter queue isn't seen yet";
   return "";
 }
 
@@ -61,8 +65,12 @@ const time = (t: string | null) => (t ? <time dateTime={t} className="tabular-nu
 export const MESSAGE_COLUMNS: MessageColumn[] = [
   {
     id: "message_id", label: "Message ID",
-    cell: (m) => <Tooltip content={m.message_id.length > 16 ? m.message_id : undefined} className="text-ink">{shortId(m.message_id)}</Tooltip>,
-    text: (m) => m.message_id,
+    // a RabbitMQ message: its ID as the application set it, and the system's badge (QV-308)
+    cell: (m) => {
+      const id = shownId(m.message_id);
+      return <><Tooltip content={id.length > 16 ? id : undefined} className="text-ink">{shortId(id)}</Tooltip>{isRabbitMq(m) && <SystemBadge system="rabbitmq" className="ml-2" />}</>;
+    },
+    text: (m) => shownId(m.message_id),
   },
   { id: "state", label: "State", cell: (m) => <StatePill m={m} />, text: (m) => [stateLook(m).label, purgeText(m)].filter(Boolean).join(". ") },
   {
@@ -111,6 +119,6 @@ export const WHY_COLUMN: MessageColumn = {
 export function messageLevel(m: MessageRow): { level: "info" | "warn" | "error"; word: string } {
   if (m.in_dead_letter_queue) return { level: "error", word: "In a dead-letter queue" };
   if (m.dead_letter_queue_move === "not_seen_on_dlq_yet") return { level: "warn", word: "Due on the dead-letter queue" };
-  if (m.deliveries > 1) return { level: "warn", word: "Received more than once" };
+  if (m.deliveries > 1) return { level: "warn", word: isRabbitMq(m) ? "Delivered more than once" : "Received more than once" };
   return { level: "info", word: "" };
 }

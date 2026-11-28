@@ -45,6 +45,9 @@ export const systemOf = (key: string | null | undefined): MessagingSystem => (ke
 /** The message ID as its application or SQS set it: a RabbitMQ key without its system mark. */
 export const shownId = (key: string) => splitKey(key)[1];
 
+/** The system a queue is on, from its URL or flow key: a RabbitMQ queue's is amqp://<host>/<vhost>/<queue> (contract A3). */
+export const systemOfQueueUrl = (url: string | null | undefined): MessagingSystem => (url && /^amqps?:\/\//i.test(url) ? RABBITMQ : SQS);
+
 /** Whether a message (a timeline or a list row) is a RabbitMQ message: its `system`, else its key. */
 export const isRabbitMq = (m: { message_id?: string | null; system?: string | null }) =>
   m.system === RABBITMQ || systemOf(m.message_id) === RABBITMQ;

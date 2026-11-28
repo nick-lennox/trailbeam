@@ -12,6 +12,7 @@ import {
   BodyPanel, EmptyState, lookupEmpty, redrivenNotice, storeIsEmpty,
   type EmptyStateProps, type MessageBody, type MessageHrefs, type MessageTab, type RedriveGateAnswer, type Timeline,
 } from "../src/index.ts";
+import { RABBITMQ } from "../src/systems.ts";
 import { MessageFrame, MessagePage, Redrive } from "../src/design/index.ts";
 import { ApiError, bodyAccess, getHealth, getJSON, messageHref, tenantHref, useMe } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
@@ -36,6 +37,9 @@ export function shellMessageHrefs(id: string): MessageHrefs {
   };
 }
 
+/** The key a RabbitMQ message of this ID would have, for an ID that is no system's key yet; null otherwise. */
+export const rabbitKeyOf = (id: string): string | null => (id && !id.startsWith("~") ? `~${RABBITMQ}~${id}` : null);
+
 const jsonLink = (path: string) => <a className="font-mono text-caption text-brand hover:underline" href={path}>{path}</a>;
 
 export function MessageShellPage() {
@@ -55,6 +59,13 @@ export function MessageShellPage() {
       .then((t) => setState({ kind: "ok", t }))
       .catch(async (e: Error) => {
         if (!(e instanceof ApiError && e.status === 404)) return setState({ kind: "error", message: e.message });
+        // an ID as a RabbitMQ publisher set it: the message's key is ~rabbitmq~<ID> (QV-308), so open it under its key
+        const rabbit = rabbitKeyOf(id);
+        if (rabbit && await getJSON<Timeline>(`/api/messages/${encodeURIComponent(rabbit)}`).then(() => true, () => false)) {
+          const u = new URL(location.href);
+          u.searchParams.set("id", rabbit);
+          return location.replace(u.toString());
+        }
         const empty = await getHealth(5000).then(storeIsEmpty, () => false);
         setState({ kind: "not-found", empty: lookupEmpty(id, empty) });
       });

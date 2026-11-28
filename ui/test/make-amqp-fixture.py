@@ -1,6 +1,7 @@
 """Make the UI's RabbitMQ fixtures (QV-308) from the contract's RabbitMQ spans.
 
-test/fixtures/amqp-timelines.json: Trailbeam's own GET /api/messages/{id} and the Messages list's rows for
+test/fixtures/amqp-timelines.json: Trailbeam's own GET /api/messages/{id}, the Messages list's rows and the Overview's
+flows (GET /api/flows) for
 every RabbitMQ message of the contract's fixture (contract/fixtures/amqp-4.0-spans.json, contract 4.0), so the UI's
 RabbitMQ wording (QV-308) is tested on what Trailbeam really returns: a publish acked once, requeues, a nack loop,
 channel closes to a dead-letter queue, a refusal, a fanout to two queues, a publisher retry, an unroutable publish, a
@@ -40,7 +41,7 @@ def record() -> tuple[dict, dict]:
         ts = [queries.message(store, it["message_id"], NOW, LT, None) for it in items]
         assert ts and all(systems.system_of(t["message_id"]) == systems.RABBITMQ for t in ts)
         timelines = {
-            "note": "GET /api/messages/{id} and the Messages list's rows for the RabbitMQ messages of contract/fixtures/"
+            "note": "GET /api/messages/{id}, the Messages list's rows and GET /api/flows for the RabbitMQ messages of contract/fixtures/"
                     "amqp-4.0-spans.json (contract 4.0), made by Trailbeam itself (ui/test/make-amqp-fixture.py).",
             "items": items,
             "timelines": sorted(ts, key=lambda t: t["message_id"]),
@@ -51,6 +52,7 @@ def record() -> tuple[dict, dict]:
         got = timeline_events.inputs(store, int(window["from_ms"]), now_ms, NOW, app.lambda_timeout_s,
                                      app.max_receive_counts)
         answer = app.api("timeline-events", window)
+        timelines["flows"] = app.api("flows", window)["flows"]
         assert answer["events"] and all(e.get("system") == systems.RABBITMQ for e in answer["events"])
         parity = {
             "note": "GET /api/timeline-events for contract/fixtures/amqp-4.0-spans.json, and what the server's port of "

@@ -1,5 +1,5 @@
 {
- "note": "GET /api/messages/{id} and the Messages list's rows for the RabbitMQ messages of contract/fixtures/amqp-4.0-spans.json (contract 4.0), made by Trailbeam itself (ui/test/make-amqp-fixture.py).",
+ "note": "GET /api/messages/{id}, the Messages list's rows and GET /api/flows for the RabbitMQ messages of contract/fixtures/amqp-4.0-spans.json (contract 4.0), made by Trailbeam itself (ui/test/make-amqp-fixture.py).",
  "items": [
   {
    "message_id": "~rabbitmq~m-stuck",
@@ -5277,6 +5277,173 @@
     "conflicts": []
    },
    "notices": []
+  }
+ ],
+ "flows": [
+  {
+   "key": "amqp://rabbitmq/%2F/orders",
+   "queue": "orders",
+   "name": "orders",
+   "url": "amqp://rabbitmq/%2F/orders",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000101,
+   "sent": 9,
+   "received": 18,
+   "deleted": 6,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 9,
+     "lambda": false
+    }
+   ],
+   "consumers": [
+    {
+     "name": "orders-worker",
+     "n": 18,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": {
+    "name": "orders.dlq",
+    "received": 2
+   }
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/classic",
+   "queue": "classic",
+   "name": "classic",
+   "url": "amqp://rabbitmq/%2F/classic",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000082,
+   "sent": 1,
+   "received": 2,
+   "deleted": 1,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "consumers": [
+    {
+     "name": "orders-worker",
+     "n": 2,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": null
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/fan.a",
+   "queue": "fan.a",
+   "name": "fan.a",
+   "url": "amqp://rabbitmq/%2F/fan.a",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000055,
+   "sent": 1,
+   "received": 1,
+   "deleted": 1,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "consumers": [
+    {
+     "name": "orders-worker",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": null
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/fan.b",
+   "queue": "fan.b",
+   "name": "fan.b",
+   "url": "amqp://rabbitmq/%2F/fan.b",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000057,
+   "sent": 1,
+   "received": 1,
+   "deleted": 1,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "consumers": [
+    {
+     "name": "orders-worker",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": null
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/orders.dlq",
+   "queue": "orders.dlq",
+   "name": "orders.dlq",
+   "url": "amqp://rabbitmq/%2F/orders.dlq",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000049,
+   "sent": 0,
+   "received": 2,
+   "deleted": 2,
+   "visibilityChanges": 0,
+   "producers": [],
+   "consumers": [
+    {
+     "name": "dlq-worker",
+     "n": 2,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": null
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/exchange/amq.default",
+   "queue": "amq.default",
+   "name": "amq.default",
+   "url": "amqp://rabbitmq/%2F/exchange/amq.default",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000074,
+   "sent": 1,
+   "received": 0,
+   "deleted": 0,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "consumers": [],
+   "avgBytes": null,
+   "dlq": null
   }
  ]
 }

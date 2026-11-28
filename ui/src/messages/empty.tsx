@@ -40,12 +40,12 @@ export function duplicatesEmpty(params: Record<string, string>, empty: boolean):
     title: `No duplicates for "${DUPLICATE_REASONS[params.reason] ?? params.reason}".`,
     link: { href: without("/duplicates", params, "reason"), label: "Show every reason" },
   };
-  return { title: "No duplicates.", detail: "No message was received more than once or handled more than once." };
+  return { title: "No duplicates.", detail: "No message was received more than once or handled more than once. A RabbitMQ message routed to two queues is one delivery on each, not a duplicate." };
 }
 
 export function stuckEmpty(olderThanS: number, empty: boolean): EmptyStateProps {
-  if (empty) return { title: "No messages yet.", detail: `A message shows up here when it's older than ${olderThanS} s and has no final delete.`, link: SET_UP };
-  return { title: "No stuck messages.", detail: `Every message first seen more than ${olderThanS} s ago has a final delete.` };
+  if (empty) return { title: "No messages yet.", detail: `A message shows up here when it's older than ${olderThanS} s and has no final delete, or on RabbitMQ no ack.`, link: SET_UP };
+  return { title: "No stuck messages.", detail: `Every message first seen more than ${olderThanS} s ago has a final delete, or on RabbitMQ an ack.` };
 }
 
 export function tenantsEmpty(): EmptyStateProps {
@@ -57,6 +57,6 @@ export function lookupEmpty(id: string, empty: boolean): EmptyStateProps {
   if (empty) return { title: <>No message with the ID <C>{id}</C> has reached Trailbeam. No service has sent spans here yet.</>, link: SET_UP };
   return {
     title: <>No message with the ID <C>{id}</C> has reached Trailbeam.</>,
-    detail: <>Message IDs are the <C>MessageId</C> SQS returns from <C>SendMessage</C>, not a receipt handle.</>,
+    detail: <>Message IDs are the <C>MessageId</C> SQS returns from <C>SendMessage</C>, not a receipt handle. A RabbitMQ message&rsquo;s ID is the <C>message_id</C> property its publisher set: a message published without one has no timeline.</>,
   };
 }
