@@ -15,7 +15,7 @@ import {
   type AlertHrefs, type AlertResult, type ApiChannel, type ApiRules, type ApiState, type ChannelActions, type ChannelRow, type RuleActions, type RulesView,
 } from "../src/index.ts";
 import { AlertChannels, AlertRules, PageHeader, Problem, SettingsSection } from "../src/design/index.ts";
-import { ApiError, getJSON, sendJSON, useMe, type Me } from "./chrome.tsx";
+import { ApiError, getJSON, getMe, sendJSON, type Me } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
 
 export type AlertData = {
@@ -48,21 +48,22 @@ const result = (send: () => Promise<unknown>) => async (): Promise<AlertResult> 
   once; it is kept for as long as the page is open.
 */
 export function useAlerts() {
-  const me = useMe();
   const [state, setState] = useState<AlertsState>({ kind: "loading" });
   const [secrets, setSecrets] = useState<Record<string, string>>({});
 
-  const load = useCallback(() => Promise.all([
+  // read once /api/me is: while it says the check is off the routes would only answer 404s, each a console error
+  // (QV-766); a server that doesn't say is asked
+  const load = useCallback(() => getMe().then((m) => m?.features && !m.features.alerts ? setState({ kind: "off" }) : Promise.all([
     getJSON<ApiRules>("/api/alerts/rules"),
     getJSON<{ channels: ApiChannel[]; canManage: boolean }>("/api/alerts/channels"),
     getJSON<ApiState>("/api/alerts/state"),
   ]).then(([rules, ch, st]) => setState((was) => {
     const data: AlertData = {
-      view: rulesViewOf(rules, ch.channels, st, byName(me)), channels: channelRowsOf(ch.channels), canManage: ch.canManage,
+      view: rulesViewOf(rules, ch.channels, st, byName(m)), channels: channelRowsOf(ch.channels), canManage: ch.canManage,
       checkedAt: st.checkedAt, hasChannel: st.hasChannel, everyMin: st.everyMin ?? rules.everyMin ?? 5,
     };
     return was.kind === "ok" && JSON.stringify(was.data) === JSON.stringify(data) ? was : { kind: "ok", data };
-  }), (e: Error) => setState(e instanceof ApiError && e.status === 404 ? { kind: "off" } : { kind: "error", message: e.message })), [me]);
+  }), (e: Error) => setState(e instanceof ApiError && e.status === 404 ? { kind: "off" } : { kind: "error", message: e.message }))), []);
 
   useEffect(() => { void load(); }, [load]);
 

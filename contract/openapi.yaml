@@ -130,13 +130,13 @@ paths:
               examples:
                 open:
                   summary: A server without a token or an admin
-                  value: {"auth": "off", "via": "none", "user": null, "sign_out": false}
+                  value: {"auth": "off", "via": "none", "user": null, "sign_out": false, "features": {"dashboards": false, "alerts": false}}
                 person:
                   summary: With a personal API token, once an admin exists
-                  value: {"auth": "accounts", "via": "personal_token", "user": {"id": 2, "email": "ana@example.com", "name": "Ana", "role": "member"}, "sign_out": false}
+                  value: {"auth": "accounts", "via": "personal_token", "user": {"id": 2, "email": "ana@example.com", "name": "Ana", "role": "member"}, "sign_out": false, "features": {"dashboards": true, "alerts": true}}
                 proxy:
                   summary: Signed in by a proxy in front of the server (`--proxy-auth-header`)
-                  value: {"auth": "accounts", "via": "proxy", "user": {"id": 3, "email": "bo@example.com", "name": "bo", "role": "member"}, "sign_out": true}
+                  value: {"auth": "accounts", "via": "proxy", "user": {"id": 3, "email": "bo@example.com", "name": "bo", "role": "member"}, "sign_out": true, "features": {"dashboards": false, "alerts": false}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -3305,6 +3305,16 @@ components:
           description: |
             Whether `GET /logout` signs this request out: true for a sign-in cookie, and for `proxy` when the
             server has `--proxy-auth-sign-out-url` (the proxy's own sign-out). Added in 0.5.
+        features:
+          type: object
+          additionalProperties: false
+          required: [dashboards, alerts]
+          description: |
+            Which parts that are off by default this server has on, so a client can show their pages without
+            asking routes that answer 404 while off. Added in 0.5.
+          properties:
+            dashboards: {type: boolean, description: '`/api/dashboards` answers (`TRAILBEAM_DASHBOARDS` is on).'}
+            alerts: {type: boolean, description: '`/api/alerts` answers (`TRAILBEAM_ALERT_CHECK` is on).'}
         user:
           oneOf:
             - type: 'null'

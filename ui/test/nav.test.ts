@@ -12,7 +12,7 @@ import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Workflow, Search } from "lucide-react";
 import { NavProvider, Sidebar, UiLink, plainNav, useNav, useSearch, type LinkProps, type Nav } from "../src/design/index.ts";
-import { ShellAccount, initials, shellItems } from "../shell/frame.tsx";
+import { ShellAccount, featureOn, initials, shellItems } from "../shell/frame.tsx";
 
 const html = (el: ReturnType<typeof h>) => renderToStaticMarkup(el);
 const SRC = new URL("../src/", import.meta.url).pathname;
@@ -83,6 +83,17 @@ test("the shell's items are its header's: People for admins, Tokens for anyone s
   // Dashboards only on a server that has them on, after the Event explorer
   assert.deepEqual(labels(shellItems(null, "/dashboards", true))[0].slice(0, 3), ["Overview", "Event explorer", "Dashboards"]);
   assert.deepEqual(labels(shellItems(null, "/alerts", false, true))[0].at(-1), "Alerts", "Alerts only while the server has the alert check on");
+});
+
+test("the shell knows which parts are on from /api/me, without asking their routes (QV-766)", () => {
+  const me = { auth: "token", via: "shared_cookie", user: null, features: { dashboards: true, alerts: false } } as const;
+  assert.equal(featureOn(me, "dashboards"), true);
+  assert.equal(featureOn(me, "alerts"), false);
+  // before /api/me is read, or from a server that doesn't say: off
+  assert.equal(featureOn(null, "alerts"), false);
+  assert.equal(featureOn({ auth: "off", via: "none", user: null }, "dashboards"), false);
+  // no part's route is asked just to know whether it is on: on a default install each was a 404 in the console
+  assert.doesNotMatch(readFileSync(new URL("../shell/frame.tsx", import.meta.url), "utf8"), /fetch\(/);
 });
 
 test("no view imports a router: the package and the shell route through the Nav", () => {

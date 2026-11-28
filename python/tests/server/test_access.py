@@ -395,8 +395,17 @@ def test_without_users_or_tokens_nothing_changes(serve):
     assert call(url, "/api/messages")[0] == 200 and call(url, "/")[0] == 200 and call(url, "/metrics")[0] == 200
     h = json.loads(call(url, "/api/health")[2])
     assert h["config"]["auth"] == "off" and h["config"]["ingest_auth"] == "open"
-    assert json.loads(call(url, "/api/me")[2]) == {"auth": "off", "via": "none", "user": None, "sign_out": False}
+    assert json.loads(call(url, "/api/me")[2]) == {"auth": "off", "via": "none", "user": None, "sign_out": False,
+                                                        "features": {"dashboards": False, "alerts": False}}
     assert call(url, "/login")[0] == 404
+
+
+def test_me_says_which_off_by_default_parts_are_on(serve, monkeypatch):
+    # the UI shows Dashboards and Alerts from this, instead of asking their routes for a 404 on every page (QV-766)
+    monkeypatch.setenv("TRAILBEAM_DASHBOARDS", "1")
+    monkeypatch.setenv("TRAILBEAM_ALERT_CHECK", "on")
+    url, _ = serve()
+    assert json.loads(call(url, "/api/me")[2])["features"] == {"dashboards": True, "alerts": True}
 
 
 def test_ingest_tokens_over_http_in_both_headers(serve):
@@ -464,6 +473,7 @@ def test_people_sign_in_and_out_and_personal_tokens_carry_their_role(serve):
     me = json.loads(call(url, "/api/me", headers={"Cookie": cookie})[2])
     assert me == {"auth": "accounts", "via": "session",
                   "user": {"id": ana, "email": "ana@example.com", "name": "Ana", "role": "member"}, "sign_out": True,
+                  "features": {"dashboards": False, "alerts": False},
                   "sign_in": {"password": True, "identities": []}}
     full = json.loads(call(url, "/api/health", headers={"Cookie": cookie})[2])
     assert full["config"]["auth"] == "accounts"
