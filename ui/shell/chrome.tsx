@@ -89,6 +89,8 @@ export type Me = {
   sign_out?: boolean;
   /** How the person can sign in, for the Account page; absent without a person or accounts, and before 0.5. */
   sign_in?: { password: boolean; identities: SignInIdentity[] };
+  /** Which off-by-default parts the server has on (TRAILBEAM_DASHBOARDS, TRAILBEAM_ALERT_CHECK); absent before 0.5. */
+  features?: { dashboards: boolean; alerts: boolean };
 };
 
 let mePromise: Promise<Me | null> | null = null;
